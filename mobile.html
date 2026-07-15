@@ -29,6 +29,7 @@
   .day .lb{font-size:13px;font-weight:700;color:#333;white-space:nowrap;}
   .day .dt{font-size:11px;color:#999;margin-bottom:2px;white-space:nowrap;}
   .day .wx{font-size:26px;line-height:1.2;}
+  .day .rt{font-size:10.5px;color:var(--min);font-weight:700;white-space:nowrap;}
   .day .tp{font-size:12.5px;margin-top:2px;white-space:nowrap;letter-spacing:-0.4px;}
   .tmin{color:var(--min);font-weight:700;}
   .tmax{color:var(--max);font-weight:700;}
@@ -139,12 +140,13 @@ function wfSeverity(wf){
 function summarizeVilage(items){
   const byDate = {};
   for (const it of items){
-    const d = byDate[it.fcstDate] || (byDate[it.fcstDate] = {sev:0,pop:0,pcp:0,tmps:[],tmn:null,tmx:null});
+    const d = byDate[it.fcstDate] || (byDate[it.fcstDate] = {sev:0,pop:0,pcp:0,tmps:[],tmn:null,tmx:null,rh:[]});
     const v = it.fcstValue;
     switch (it.category){
       case 'PTY': { const p=+v; let s=0;
         if (p===3) s=2; else if (p===1||p===2||p===4||p===5||p===6||p===7) s=3;
-        if (s>d.sev) d.sev=s; break; }
+        if (s>d.sev) d.sev=s;
+        if (p>0) d.rh.push(+it.fcstTime.slice(0,2)); break; }
       case 'SKY': { const s=(+v>=3)?1:0; if (s>d.sev) d.sev=s; break; }
       case 'POP': d.pop = Math.max(d.pop, +v); break;
       case 'PCP': d.pcp += parsePcp(v); break;
@@ -157,6 +159,7 @@ function summarizeVilage(items){
     if (d.tmn==null && d.tmps.length) d.tmn = Math.round(Math.min(...d.tmps));
     if (d.tmx==null && d.tmps.length) d.tmx = Math.round(Math.max(...d.tmps));
     d.pcp = Math.round(d.pcp*10)/10;
+    d.rt = d.rh.length ? `${Math.min(...d.rh)}~${Math.max(...d.rh)+1}시` : null;
   }
   return byDate;
 }
@@ -184,9 +187,10 @@ function dayHTML(lb, dateStr, cell, isMid, isToday){
     rn = `${cell.pop}%`;
     if (!isMid && cell.pcp>0) rn += `<span class="mm">${cell.pcp}mm</span>`;
   }
+  const rt = (cell && cell.rt) ? `<div class="rt">${cell.rt}</div>` : '';
   return `<div class="day${isToday?' today-col':''}">
     <div class="lb">${lb}</div><div class="dt">${dateStr}</div>
-    <div class="wx">${wx}</div><div class="tp">${tp}</div><div class="rn">${rn}</div>
+    <div class="wx">${wx}</div>${rt}<div class="tp">${tp}</div><div class="rn">${rn}</div>
   </div>`;
 }
 
@@ -223,7 +227,7 @@ async function loadAll(){
         let cell = null, isMid = false;
         if (k<=3 && days[dateKey]){
           const s = days[dateKey];
-          cell = {sev:s.sev, pop:s.pop, pcp:s.pcp, tmin:s.tmn, tmax:s.tmx};
+          cell = {sev:s.sev, pop:s.pop, pcp:s.pcp, tmin:s.tmn, tmax:s.tmx, rt:s.rt};
         } else { cell = mergeMid(midDay(land, ta, k+diff), midDay(land2, ta2, k+diff2)); isMid = true; }
         return dayHTML(lb, `${d.getMonth()+1}/${d.getDate()}(${WD[d.getDay()]})`, cell, isMid, k===0);
       }).join('');

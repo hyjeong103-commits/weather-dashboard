@@ -32,6 +32,7 @@ if (matchMedia('(max-width: 767px)').matches && !location.search.includes('pc'))
   tbody tr.shade td{background:var(--shade);}
   tbody tr.region-row td{border-top:2px solid #9a9a9a;}
   td.wx{font-size:20px;}
+  td.wx .rt{display:block;font-size:10px;color:var(--min);font-weight:600;line-height:1.3;}
   .tmin{color:var(--min);font-weight:600;}
   .tmax{color:var(--max);font-weight:600;}
   .sep{color:#aaa;margin:0 2px;}
@@ -145,12 +146,13 @@ function wfSeverity(wf){ // 중기 문자열 → 심각도
 function summarizeVilage(items){
   const byDate = {};
   for (const it of items){
-    const d = byDate[it.fcstDate] || (byDate[it.fcstDate] = {sev:0,pop:0,pcp:0,tmps:[],tmn:null,tmx:null});
+    const d = byDate[it.fcstDate] || (byDate[it.fcstDate] = {sev:0,pop:0,pcp:0,tmps:[],tmn:null,tmx:null,rh:[]});
     const v = it.fcstValue;
     switch (it.category){
       case 'PTY': { const p=+v; let s=0;
         if (p===3) s=2; else if (p===1||p===2||p===4||p===5||p===6||p===7) s=3;
-        if (s>d.sev) d.sev=s; break; }
+        if (s>d.sev) d.sev=s;
+        if (p>0) d.rh.push(+it.fcstTime.slice(0,2)); break; }
       case 'SKY': { const s=(+v>=3)?1:0; if (s>d.sev) d.sev=s; break; }
       case 'POP': d.pop = Math.max(d.pop, +v); break;
       case 'PCP': d.pcp += parsePcp(v); break;
@@ -163,6 +165,7 @@ function summarizeVilage(items){
     if (d.tmn==null && d.tmps.length) d.tmn = Math.round(Math.min(...d.tmps));
     if (d.tmx==null && d.tmps.length) d.tmx = Math.round(Math.max(...d.tmps));
     d.pcp = Math.round(d.pcp*10)/10;
+    d.rt = d.rh.length ? `${Math.min(...d.rh)}~${Math.max(...d.rh)+1}시` : null;
   }
   return byDate;
 }
@@ -181,7 +184,12 @@ function midDay(land, ta, idx){
   };
 }
 
-function wxCell(sev){ return sev==null ? '<span class="dim">-</span>' : EMOJI[SEV_EMOJI[sev]]; }
+function wxCell(sev,rt){
+  if (sev==null) return '<span class="dim">-</span>';
+  let s = EMOJI[SEV_EMOJI[sev]];
+  if (rt) s += `<span class="rt">${rt}</span>`;
+  return s;
+}
 function tempCell(tmin,tmax){
   if (tmin==null && tmax==null) return '<span class="dim">-</span>';
   return `<span class="tmin">${tmin ?? '-'}°</span><span class="sep">/</span><span class="tmax">${tmax ?? '-'}°</span>`;
@@ -240,11 +248,11 @@ async function loadAll(){
         let cell = null, isMid = false;
         if (k<=3 && days[dateKey]){
           const d = days[dateKey];
-          cell = {sev:d.sev, pop:d.pop, pcp:d.pcp, tmin:d.tmn, tmax:d.tmx};
+          cell = {sev:d.sev, pop:d.pop, pcp:d.pcp, tmin:d.tmn, tmax:d.tmx, rt:d.rt};
         } else {
           cell = mergeMid(midDay(land, ta, k+diff), midDay(land2, ta2, k+diff2)); isMid = true;
         }
-        document.getElementById(`w${i}_${k}`).innerHTML = wxCell(cell && cell.sev);
+        document.getElementById(`w${i}_${k}`).innerHTML = wxCell(cell && cell.sev, cell && cell.rt);
         document.getElementById(`t${i}_${k}`).innerHTML = cell ? tempCell(cell.tmin, cell.tmax) : '<span class="dim">-</span>';
         document.getElementById(`r${i}_${k}`).innerHTML = cell ? rainCell(cell.pop, isMid?null:cell.pcp) : '<span class="dim">-</span>';
       }
