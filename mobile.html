@@ -181,7 +181,7 @@ function dayHTML(lb, dateStr, cell, isMid, isToday){
   const wx = (cell && cell.sev!=null) ? EMOJI[SEV_EMOJI[cell.sev]] : '<span class="dim">-</span>';
   let tp = '<span class="dim">-</span>';
   if (cell && (cell.tmin!=null || cell.tmax!=null))
-    tp = `<span class="tmin">${cell.tmin ?? '-'}</span><span class="sep">/</span><span class="tmax">${cell.tmax ?? '-'}°</span>`;
+    tp = `<span class="tmax">${cell.tmax ?? '-'}</span><span class="sep">/</span><span class="tmin">${cell.tmin ?? '-'}°</span>`;
   let rn = '<span class="dim">-</span>', mm = '';
   if (cell && cell.pop!=null){
     rn = `${cell.pop}%`;
