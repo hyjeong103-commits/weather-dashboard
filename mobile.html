@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>전국 주간 날씨 (모바일)</title>
+<style>
+  :root{
+    --blue:#2b579a; --line:#e2e2e2; --bg:#f5f6f8;
+    --min:#1a6fc4; --max:#d43c3c;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;font-family:'Malgun Gothic','Apple SD Gothic Neo',sans-serif;background:var(--bg);color:#222;}
+  header{position:sticky;top:0;z-index:10;background:#fff;border-bottom:1px solid var(--line);
+    padding:8px 10px;display:flex;align-items:center;justify-content:space-between;gap:6px;}
+  header h1{font-size:17px;color:var(--blue);margin:0;}
+  button.refresh{border:1px solid var(--blue);background:#fff;color:var(--blue);border-radius:14px;
+    padding:5px 12px;font-size:13px;cursor:pointer;}
+  .meta{font-size:11px;color:#999;padding:4px 10px 0;}
+  #status{font-size:11px;color:#999;padding:0 10px 2px;}
+  /* 여백 제거: 카드 대신 전체 폭 사용 */
+  main{padding:0 0 14px;}
+  .card{background:#fff;border:none;border-bottom:5px solid var(--bg);border-radius:0;margin:0;overflow:hidden;}
+  .card h2{font-size:15px;margin:0;padding:6px 10px 5px;color:var(--blue);background:#eef2f8;}
+  /* 갤럭시 S25(약 360~412px) 폭에 7일이 스크롤 없이 꽉 차도록 */
+  .days{display:flex;}
+  .day{flex:1 1 0;min-width:0;text-align:center;padding:5px 0 7px;border-right:1px solid #f0f0f0;}
+  .day:last-child{border-right:none;}
+  .day .lb{font-size:13px;font-weight:700;color:#333;white-space:nowrap;}
+  .day .dt{font-size:11px;color:#999;margin-bottom:2px;white-space:nowrap;}
+  .day .wx{font-size:26px;line-height:1.2;}
+  .day .tp{font-size:12.5px;margin-top:2px;white-space:nowrap;letter-spacing:-0.4px;}
+  .tmin{color:var(--min);font-weight:700;}
+  .tmax{color:var(--max);font-weight:700;}
+  .sep{color:#bbb;}
+  .day .rn{font-size:12px;color:#555;margin-top:2px;white-space:nowrap;font-weight:600;}
+  .day .rn .mm{display:block;color:#999;font-size:10.5px;font-weight:400;}
+  .err{color:#c33;font-size:13px;padding:10px;}
+  .dim{color:#ccc;}
+  .today-col{background:#eef4fd;}
+  .foot{font-size:11px;color:#999;padding:4px 10px 14px;}
+  .foot a{color:var(--blue);}
+</style>
+</head>
+<body>
+<header>
+  <h1>전국 주간 날씨</h1>
+  <button class="refresh" onclick="loadAll()">&#8635; 새로고침</button>
+</header>
+<div class="meta" id="baseInfo"></div>
+<div id="status"></div>
+<main id="main"></main>
+<div class="foot">자료: 기상청 단기예보·중기예보 (공공데이터포털) · <a href="index.html?pc">PC 버전</a></div>
+
+<script>
+const REGIONS = [
+  {name:'서울 북부 (종로)',   land:'11B00000', ta:'11B10101', nx:60, ny:127},
+  {name:'서울 남부 (강남)',   land:'11B00000', ta:'11B10101', nx:61, ny:126},
+  {name:'경기 북부 (파주)',   land:'11B00000', ta:'11B20305', nx:56, ny:131},
+  {name:'경기 남부 (수원)',   land:'11B00000', ta:'11B20601', nx:60, ny:121},
+  {name:'강원 내륙 (춘천)',   land:'11D10000', ta:'11D10301', nx:73, ny:134},
+  {name:'강원 해안 (강릉)',   land:'11D20000', ta:'11D20501', nx:92, ny:131},
+  {name:'경상 북부 (대구)',   land:'11H10000', ta:'11H10701', nx:89, ny:90},
+  {name:'경상 남부 (부산)',   land:'11H20000', ta:'11H20201', nx:98, ny:76},
+  {name:'전라 북부 (전주)',   land:'11F10000', ta:'11F10201', nx:63, ny:89},
+  {name:'전라 남부 (광주)',   land:'11F20000', ta:'11F20501', nx:58, ny:74},
+  {name:'충청 북부 (청주)',   land:'11C10000', ta:'11C10301', nx:69, ny:106},
+  {name:'충청 남부 (대전)',   land:'11C20000', ta:'11C20401', nx:67, ny:100},
+  {name:'제주 북부 (제주)',   land:'11G00000', ta:'11G00201', nx:53, ny:38},
+  {name:'제주 남부 (서귀포)', land:'11G00000', ta:'11G00401', nx:52, ny:33},
+];
+const EMOJI = {sun:'☀️', cloud:'☁️', rain:'🌧️', snow:'☃️'};
+const SEV_EMOJI = ['sun','cloud','snow','rain'];
+const WD = ['일','월','화','수','목','금','토'];
+
+function kstNow(){ return new Date(Date.now() + (9*60 + new Date().getTimezoneOffset())*60000); }
+function ymd(d){ return d.getFullYear()+String(d.getMonth()+1).padStart(2,'0')+String(d.getDate()).padStart(2,'0'); }
+function addDays(d,n){ const x=new Date(d); x.setDate(x.getDate()+n); return x; }
+
+// [가장 최신 발표, 02시 발표] — 최신 발표를 우선 적용하고,
+// 최신 발표에 없는 값(오늘 최저/최고기온, 지나간 시간대)은 02시 발표로 보완
+function vilageBases(){
+  const n = kstNow();
+  const hm = n.getHours()*100 + n.getMinutes();
+  const times = ['2300','2000','1700','1400','1100','0800','0500','0200'];
+  let latest = null;
+  for (const t of times){ if (hm >= (+t)+15){ latest = {date: ymd(n), time: t}; break; } }
+  if (!latest) latest = {date: ymd(addDays(n,-1)), time:'2300'};
+  const daily = (hm >= 215) ? {date: ymd(n), time:'0200'} : {date: ymd(addDays(n,-1)), time:'2300'};
+  return [latest, daily];
+}
+function mergeVilage(dailyItems, latestItems){
+  const map = new Map();
+  for (const it of dailyItems)  map.set(`${it.fcstDate}|${it.fcstTime}|${it.category}`, it);
+  for (const it of latestItems) map.set(`${it.fcstDate}|${it.fcstTime}|${it.category}`, it);
+  return [...map.values()];
+}
+// [최신 발표, 직전 발표] — 18시 발표는 4일후 항목이 없어 직전 발표로 보완
+function midTmFcs(){
+  const n = kstNow(); const hm = n.getHours()*100 + n.getMinutes();
+  const t = ymd(n), y = ymd(addDays(n,-1));
+  if (hm >= 1815) return [t+'1800', t+'0600'];
+  if (hm >= 615)  return [t+'0600', y+'1800'];
+  return [y+'1800', y+'0600'];
+}
+function mergeMid(a,b){
+  if (!a && !b) return null; a = a||{}; b = b||{};
+  const m = {sev:a.sev??b.sev??null, pop:a.pop??b.pop??null, tmin:a.tmin??b.tmin??null, tmax:a.tmax??b.tmax??null};
+  return (m.sev==null && m.pop==null && m.tmin==null && m.tmax==null) ? null : m;
+}
+
+const cache = {};
+async function api(url){
+  if (!cache[url]) cache[url] = fetch(url).then(r=>r.json()).then(j=>{
+    const h = j.response.header;
+    if (h.resultCode !== '00') throw new Error(h.resultMsg);
+    return j.response.body.items.item;
+  });
+  return cache[url];
+}
+// API 키는 서버(Netlify Function)에서만 사용 — 프록시 경유 호출
+const API = '/api/weather';
+const getVilage  = (nx,ny,b)=> api(`${API}?service=vilage&pageNo=1&numOfRows=1500&base_date=${b.date}&base_time=${b.time}&nx=${nx}&ny=${ny}`);
+const getMidLand = (regId,tmFc)=> api(`${API}?service=midLand&pageNo=1&numOfRows=10&regId=${regId}&tmFc=${tmFc}`).then(i=>i[0]);
+const getMidTa   = (regId,tmFc)=> api(`${API}?service=midTa&pageNo=1&numOfRows=10&regId=${regId}&tmFc=${tmFc}`).then(i=>i[0]);
+
+function parsePcp(v){
+  if (!v || String(v).includes('없음')) return 0;
+  if (String(v).includes('미만')) return 0.5;
+  const f = parseFloat(v); return isNaN(f) ? 0 : f;
+}
+function wfSeverity(wf){
+  if (!wf) return null;
+  if (wf.includes('비') || wf.includes('소나기')) return 3;
+  if (wf.includes('눈')) return 2;
+  if (wf.includes('흐리') || wf.includes('구름')) return 1;
+  return 0;
+}
+function summarizeVilage(items){
+  const byDate = {};
+  for (const it of items){
+    const d = byDate[it.fcstDate] || (byDate[it.fcstDate] = {sev:0,pop:0,pcp:0,tmps:[],tmn:null,tmx:null});
+    const v = it.fcstValue;
+    switch (it.category){
+      case 'PTY': { const p=+v; let s=0;
+        if (p===3) s=2; else if (p===1||p===2||p===4||p===5||p===6||p===7) s=3;
+        if (s>d.sev) d.sev=s; break; }
+      case 'SKY': { const s=(+v>=3)?1:0; if (s>d.sev) d.sev=s; break; }
+      case 'POP': d.pop = Math.max(d.pop, +v); break;
+      case 'PCP': d.pcp += parsePcp(v); break;
+      case 'TMP': d.tmps.push(+v); break;
+      case 'TMN': d.tmn = Math.round(+v); break;
+      case 'TMX': d.tmx = Math.round(+v); break;
+    }
+  }
+  for (const k in byDate){ const d=byDate[k];
+    if (d.tmn==null && d.tmps.length) d.tmn = Math.round(Math.min(...d.tmps));
+    if (d.tmx==null && d.tmps.length) d.tmx = Math.round(Math.max(...d.tmps));
+    d.pcp = Math.round(d.pcp*10)/10;
+  }
+  return byDate;
+}
+function midDay(land, ta, idx){
+  if (idx < 4 || idx > 10) return null;
+  const am = land[`wf${idx}Am`], pm = land[`wf${idx}Pm`], one = land[`wf${idx}`];
+  const sevs = [am,pm,one].map(wfSeverity).filter(s=>s!=null);
+  const rAm = land[`rnSt${idx}Am`], rPm = land[`rnSt${idx}Pm`], rOne = land[`rnSt${idx}`];
+  const pops = [rAm,rPm,rOne].filter(v=>v!=null).map(Number);
+  return {
+    sev: sevs.length ? Math.max(...sevs) : null,
+    pop: pops.length ? Math.max(...pops) : null,
+    tmin: ta ? ta[`taMin${idx}`] : null,
+    tmax: ta ? ta[`taMax${idx}`] : null,
+  };
+}
+
+function dayHTML(lb, dateStr, cell, isMid, isToday){
+  const wx = (cell && cell.sev!=null) ? EMOJI[SEV_EMOJI[cell.sev]] : '<span class="dim">-</span>';
+  let tp = '<span class="dim">-</span>';
+  if (cell && (cell.tmin!=null || cell.tmax!=null))
+    tp = `<span class="tmin">${cell.tmin ?? '-'}</span><span class="sep">/</span><span class="tmax">${cell.tmax ?? '-'}°</span>`;
+  let rn = '<span class="dim">-</span>';
+  if (cell && cell.pop!=null){
+    rn = `${cell.pop}%`;
+    if (!isMid && cell.pcp>0) rn += `<span class="mm">${cell.pcp}mm</span>`;
+  }
+  return `<div class="day${isToday?' today-col':''}">
+    <div class="lb">${lb}</div><div class="dt">${dateStr}</div>
+    <div class="wx">${wx}</div><div class="tp">${tp}</div><div class="rn">${rn}</div>
+  </div>`;
+}
+
+async function loadAll(){
+  const status = document.getElementById('status');
+  status.textContent = '불러오는 중...';
+  Object.keys(cache).forEach(k=>delete cache[k]);
+  const [vbL, vbD] = vilageBases(), [tmFc, tmFc2] = midTmFcs();
+  const today = kstNow();
+  const toDate = s => new Date(`${s.slice(0,4)}-${s.slice(4,6)}-${s.slice(6,8)}`);
+  const dayDiff = fc => Math.round((toDate(ymd(today)) - toDate(fc.slice(0,8))) / 86400000);
+  const diff = dayDiff(tmFc), diff2 = dayDiff(tmFc2);
+  document.getElementById('baseInfo').textContent =
+    `단기 발표 ${vbL.date.slice(4,6)}/${vbL.date.slice(6)} ${vbL.time.slice(0,2)}:${vbL.time.slice(2)} · 중기 발표 ${tmFc.slice(4,6)}/${tmFc.slice(6,8)} ${tmFc.slice(8,10)}:00`;
+
+  const labels = ['오늘','내일','D+2','D+3','D+4','D+5','D+6'];
+  const main = document.getElementById('main');
+  main.innerHTML = REGIONS.map((r,i)=>
+    `<div class="card"><h2>${r.name}</h2><div class="days" id="c${i}">불러오는 중...</div></div>`).join('');
+
+  let done = 0;
+  await Promise.all(REGIONS.map(async (r,i)=>{
+    const box = document.getElementById(`c${i}`);
+    try{
+      const [vilL, vilD, land, ta, land2, ta2] = await Promise.all([
+        getVilage(r.nx,r.ny,vbL), getVilage(r.nx,r.ny,vbD),
+        getMidLand(r.land,tmFc), getMidTa(r.ta,tmFc),
+        getMidLand(r.land,tmFc2), getMidTa(r.ta,tmFc2)
+      ]);
+      const days = summarizeVilage(mergeVilage(vilD, vilL));
+      box.innerHTML = labels.map((lb,k)=>{
+        const d = addDays(today,k);
+        const dateKey = ymd(d);
+        let cell = null, isMid = false;
+        if (k<=3 && days[dateKey]){
+          const s = days[dateKey];
+          cell = {sev:s.sev, pop:s.pop, pcp:s.pcp, tmin:s.tmn, tmax:s.tmx};
+        } else { cell = mergeMid(midDay(land, ta, k+diff), midDay(land2, ta2, k+diff2)); isMid = true; }
+        return dayHTML(lb, `${d.getMonth()+1}/${d.getDate()}(${WD[d.getDay()]})`, cell, isMid, k===0);
+      }).join('');
+    }catch(e){
+      box.innerHTML = `<div class="err">데이터를 불러오지 못했습니다 (${e.message})</div>`;
+      console.error(r.name, e);
+    }
+    status.textContent = `불러오는 중... (${++done}/${REGIONS.length})`;
+  }));
+  status.textContent = `업데이트: ${kstNow().toTimeString().slice(0,5)} KST`;
+}
+loadAll();
+</script>
+</body>
+</html>
