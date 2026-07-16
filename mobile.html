@@ -44,6 +44,7 @@
   .br-head{font-weight:700;color:var(--blue);margin-bottom:7px;font-size:14px;}
   .br-head select{margin-left:6px;font-size:12px;padding:3px 6px;border:1px solid var(--line);border-radius:5px;}
   .br-items{display:flex;flex-direction:column;gap:6px;font-size:13.5px;line-height:1.4;}
+  .br-loc{display:block;font-weight:400;font-size:11.5px;color:#666;margin-top:3px;}
   .br-item b{font-weight:700;}
   .today-col{background:#eef4fd;}
   .foot{font-size:11px;color:#999;padding:4px 10px 14px;}
@@ -238,11 +239,42 @@ function feelsSummer(Ta,RH){
   const Tw = wetBulb(Ta,RH);
   return -0.2442 + 0.55399*Tw + 0.45535*Ta - 0.0022*Tw*Tw + 0.00278*Tw*Ta + 3.0;
 }
-let briefIdx = 0;
+// 현재 위치(GPS) → 기상청 격자 좌표 변환 (DFS)
+function latLonToGrid(lat, lon){
+  const RE=6371.00877, GRID=5.0, DEGRAD=Math.PI/180;
+  const re=RE/GRID, slat1=30*DEGRAD, slat2=60*DEGRAD, olon=126*DEGRAD, olat=38*DEGRAD, XO=43, YO=136;
+  let sn=Math.tan(Math.PI*0.25+slat2*0.5)/Math.tan(Math.PI*0.25+slat1*0.5);
+  sn=Math.log(Math.cos(slat1)/Math.cos(slat2))/Math.log(sn);
+  let sf=Math.tan(Math.PI*0.25+slat1*0.5); sf=Math.pow(sf,sn)*Math.cos(slat1)/sn;
+  let ro=Math.tan(Math.PI*0.25+olat*0.5); ro=re*sf/Math.pow(ro,sn);
+  let ra=Math.tan(Math.PI*0.25+lat*DEGRAD*0.5); ra=re*sf/Math.pow(ra,sn);
+  let theta=lon*DEGRAD-olon; if(theta>Math.PI)theta-=2*Math.PI; if(theta<-Math.PI)theta+=2*Math.PI; theta*=sn;
+  return { nx: Math.floor(ra*Math.sin(theta)+XO+0.5), ny: Math.floor(ro-ra*Math.cos(theta)+YO+0.5) };
+}
+let myLoc = null;
+function useMyLocation(){
+  return new Promise(res=>{
+    if (!navigator.geolocation) return res(null);
+    navigator.geolocation.getCurrentPosition(
+      pos=>{
+        const g = latLonToGrid(pos.coords.latitude, pos.coords.longitude);
+        let best=0, bd=Infinity;
+        REGIONS.forEach((r,i)=>{ const dd=(r.nx-g.nx)**2+(r.ny-g.ny)**2; if(dd<bd){bd=dd; best=i;} });
+        res({nx:g.nx, ny:g.ny, label:`📍 내 위치 (${REGIONS[best].name} 인근)`});
+      },
+      ()=>res(null), {timeout:5000, maximumAge:600000});
+  });
+}
+let briefIdx = -1; // 기본: 내 위치 (권한 거부/실패 시 서울 북부)
 async function renderBriefing(idx){
   briefIdx = idx;
   const box = document.getElementById('brief');
-  const r = REGIONS[idx];
+  let r, label = '';
+  if (idx === -1){
+    if (!myLoc) myLoc = await useMyLocation();
+    if (myLoc){ r = myLoc; label = myLoc.label; }
+    else { briefIdx = idx = 0; r = REGIONS[0]; }
+  } else { r = REGIONS[idx]; }
   try{
     const [vbL, vbD] = vilageBases();
     const today = kstNow(), tKey = ymd(today), yKey = ymd(addDays(today,-1));
@@ -275,7 +307,8 @@ async function renderBriefing(idx){
       ? `🚌 출근 8시 ${d.ht[8]??'-'}° ${he(8)} · 퇴근 18시 ${d.ht[18]??'-'}° ${he(18)}` : '';
     box.style.display='';
     box.innerHTML = `<div class="br-head">오늘 브리핑
-        <select id="brSel" onchange="renderBriefing(+this.value)">${REGIONS.map((g,i)=>`<option value="${i}" ${i===idx?'selected':''}>${g.name}</option>`).join('')}</select></div>
+        <select id="brSel" onchange="renderBriefing(+this.value)"><option value="-1" ${idx===-1?'selected':''}>📍 내 위치</option>${REGIONS.map((g,i)=>`<option value="${i}" ${i===idx?'selected':''}>${g.name}</option>`).join('')}</select>
+        ${idx===-1?`<span class="br-loc">${label}</span>`:''}</div>
       <div class="br-items">${[rain,feel,cmp,cmu].filter(Boolean).map(t=>`<div class="br-item">${t}</div>`).join('')}</div>`;
   }catch(e){ box.style.display='none'; console.error('briefing', e); }
 }
