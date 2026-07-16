@@ -40,6 +40,11 @@
   .spark{width:100%;height:100%;display:block;}
   .err{color:#c33;font-size:13px;padding:10px;}
   .dim{color:#ccc;}
+  .brief{border:1px solid #c7d8ef;border-radius:10px;padding:10px 12px;margin:8px;background:#f4f8fd;}
+  .br-head{font-weight:700;color:var(--blue);margin-bottom:7px;font-size:14px;}
+  .br-head select{margin-left:6px;font-size:12px;padding:3px 6px;border:1px solid var(--line);border-radius:5px;}
+  .br-items{display:flex;flex-direction:column;gap:6px;font-size:13.5px;line-height:1.4;}
+  .br-item b{font-weight:700;}
   .today-col{background:#eef4fd;}
   .foot{font-size:11px;color:#999;padding:4px 10px 14px;}
   .foot a{color:var(--blue);}
@@ -52,6 +57,7 @@
 </header>
 <div class="meta" id="baseInfo"></div>
 <div id="status"></div>
+<div id="brief" class="brief" style="display:none"></div>
 <main id="main"></main>
 <div class="foot">자료: 기상청 단기예보·중기예보 (공공데이터포털) · <a href="index.html?pc">PC 버전</a></div>
 
@@ -143,17 +149,21 @@ function wfSeverity(wf){
 function summarizeVilage(items){
   const byDate = {};
   for (const it of items){
-    const d = byDate[it.fcstDate] || (byDate[it.fcstDate] = {sev:0,pop:0,pcp:0,tmps:[],tmn:null,tmx:null,rh:[],hv:Array(24).fill(0)});
+    const d = byDate[it.fcstDate] || (byDate[it.fcstDate] = {sev:0,pop:0,pcp:0,tmps:[],tmn:null,tmx:null,rh:[],
+      hv:Array(24).fill(0), ht:Array(24).fill(null), hh:Array(24).fill(null), hs:Array(24).fill(null), hp:Array(24).fill(0)});
     const v = it.fcstValue;
+    const hr = +it.fcstTime.slice(0,2);
     switch (it.category){
       case 'PTY': { const p=+v; let s=0;
         if (p===3) s=2; else if (p===1||p===2||p===4||p===5||p===6||p===7) s=3;
         if (s>d.sev) d.sev=s;
-        if (p>0) d.rh.push(+it.fcstTime.slice(0,2)); break; }
-      case 'SKY': { const s=(+v>=3)?1:0; if (s>d.sev) d.sev=s; break; }
+        d.hp[hr] = p;
+        if (p>0) d.rh.push(hr); break; }
+      case 'SKY': { const s=(+v>=3)?1:0; if (s>d.sev) d.sev=s; d.hs[hr] = +v; break; }
       case 'POP': d.pop = Math.max(d.pop, +v); break;
-      case 'PCP': { const mm = parsePcp(v); d.pcp += mm; d.hv[+it.fcstTime.slice(0,2)] = mm; break; }
-      case 'TMP': d.tmps.push(+v); break;
+      case 'PCP': { const mm = parsePcp(v); d.pcp += mm; d.hv[hr] = mm; break; }
+      case 'TMP': d.tmps.push(+v); d.ht[hr] = +v; break;
+      case 'REH': d.hh[hr] = +v; break;
       case 'TMN': d.tmn = Math.round(+v); break;
       case 'TMX': d.tmx = Math.round(+v); break;
     }
@@ -218,6 +228,58 @@ function dayHTML(lb, dateStr, cell, isMid, isToday){
   </div>`;
 }
 
+// ── 오늘 브리핑 카드 ──
+// 여름철 체감온도 (기상청 공식: 습구온도 Stull 근사 사용)
+function wetBulb(Ta,RH){
+  return Ta*Math.atan(0.151977*Math.sqrt(RH+8.313659)) + Math.atan(Ta+RH) - Math.atan(RH-1.676331)
+    + 0.00391838*Math.pow(RH,1.5)*Math.atan(0.023101*RH) - 4.686035;
+}
+function feelsSummer(Ta,RH){
+  const Tw = wetBulb(Ta,RH);
+  return -0.2442 + 0.55399*Tw + 0.45535*Ta - 0.0022*Tw*Tw + 0.00278*Tw*Ta + 3.0;
+}
+let briefIdx = 0;
+async function renderBriefing(idx){
+  briefIdx = idx;
+  const box = document.getElementById('brief');
+  const r = REGIONS[idx];
+  try{
+    const [vbL, vbD] = vilageBases();
+    const today = kstNow(), tKey = ymd(today), yKey = ymd(addDays(today,-1));
+    const [vilL, vilD, vilY] = await Promise.all([
+      getVilage(r.nx,r.ny,vbL), getVilage(r.nx,r.ny,vbD),
+      getVilage(r.nx,r.ny,{date:yKey, time:'0200'}).catch(()=>null)
+    ]);
+    const d = summarizeVilage(mergeVilage(vilD, vilL))[tKey];
+    if (!d){ box.style.display='none'; return; }
+    let rain;
+    if (d.rt) rain = `☔ <b>${d.rt}</b> 비 예상${d.pcp>0?` (총 ${d.pcp}mm)`:''} — 우산 챙기세요`;
+    else if (d.pop>=40) rain = `☂️ 강수확률 ${d.pop}% — 우산 챙기면 안심`;
+    else rain = `☀️ 오늘 비 소식 없음 (강수확률 ${d.pop}%)`;
+    let feel = '';
+    if (d.tmx!=null && d.tmx>=25){
+      let mx=null;
+      for (let h=0;h<24;h++) if (d.ht[h]!=null && d.hh[h]!=null){ const f=feelsSummer(d.ht[h],d.hh[h]); if (mx==null||f>mx) mx=f; }
+      feel = mx!=null ? `🌡️ 최고 <b class="tmax">${d.tmx}°</b> · 체감 <b class="tmax">${Math.round(mx)}°</b>` : `🌡️ 최고 <b class="tmax">${d.tmx}°</b>`;
+    } else if (d.tmx!=null) feel = `🌡️ 최고 <b class="tmax">${d.tmx}°</b> / 최저 <b class="tmin">${d.tmn}°</b>`;
+    let cmp = '';
+    try{
+      const yd = vilY ? summarizeVilage(vilY)[yKey] : null;
+      if (yd && yd.tmx!=null && d.tmx!=null){
+        const diff = d.tmx - yd.tmx;
+        cmp = diff>=1 ? `📈 어제보다 <b class="tmax">${diff}°</b> 높음` : diff<=-1 ? `📉 어제보다 <b class="tmin">${-diff}°</b> 낮음` : `↔️ 어제와 비슷한 기온`;
+      }
+    }catch(e){}
+    const he = h => { const p=d.hp[h]||0, s=d.hs[h]||1; return p===3?EMOJI.snow : p>0?EMOJI.rain : s>=3?EMOJI.cloud:EMOJI.sun; };
+    const cmu = (d.ht[8]!=null || d.ht[18]!=null)
+      ? `🚌 출근 8시 ${d.ht[8]??'-'}° ${he(8)} · 퇴근 18시 ${d.ht[18]??'-'}° ${he(18)}` : '';
+    box.style.display='';
+    box.innerHTML = `<div class="br-head">오늘 브리핑
+        <select id="brSel" onchange="renderBriefing(+this.value)">${REGIONS.map((g,i)=>`<option value="${i}" ${i===idx?'selected':''}>${g.name}</option>`).join('')}</select></div>
+      <div class="br-items">${[rain,feel,cmp,cmu].filter(Boolean).map(t=>`<div class="br-item">${t}</div>`).join('')}</div>`;
+  }catch(e){ box.style.display='none'; console.error('briefing', e); }
+}
+
 async function loadAll(){
   const status = document.getElementById('status');
   status.textContent = '불러오는 중...';
@@ -229,6 +291,7 @@ async function loadAll(){
   const diff = dayDiff(tmFc), diff2 = dayDiff(tmFc2);
   document.getElementById('baseInfo').textContent =
     `단기 발표 ${vbL.date.slice(4,6)}/${vbL.date.slice(6)} ${vbL.time.slice(0,2)}:${vbL.time.slice(2)} · 중기 발표 ${tmFc.slice(4,6)}/${tmFc.slice(6,8)} ${tmFc.slice(8,10)}:00`;
+  renderBriefing(briefIdx);
 
   const labels = ['오늘','내일','D+2','D+3','D+4','D+5','D+6'];
   const main = document.getElementById('main');
