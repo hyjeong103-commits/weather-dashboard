@@ -256,11 +256,21 @@ function useMyLocation(){
   return new Promise(res=>{
     if (!navigator.geolocation) return res(null);
     navigator.geolocation.getCurrentPosition(
-      pos=>{
-        const g = latLonToGrid(pos.coords.latitude, pos.coords.longitude);
-        let best=0, bd=Infinity;
-        REGIONS.forEach((r,i)=>{ const dd=(r.nx-g.nx)**2+(r.ny-g.ny)**2; if(dd<bd){bd=dd; best=i;} });
-        res({nx:g.nx, ny:g.ny, label:`📍 내 위치 (${REGIONS[best].name} 인근)`});
+      async pos=>{
+        const {latitude:lat, longitude:lon} = pos.coords;
+        const g = latLonToGrid(lat, lon);
+        let name = null;
+        try{ // 동네 이름 조회 (OpenStreetMap 역지오코딩, 무료)
+          const j = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lon}&accept-language=ko&zoom=14`).then(r=>r.json());
+          const a = j.address || {};
+          name = a.borough || a.city_district || a.district || a.suburb || a.county || a.city || a.town || null;
+        }catch(e){}
+        if (!name){
+          let best=0, bd=Infinity;
+          REGIONS.forEach((r,i)=>{ const dd=(r.nx-g.nx)**2+(r.ny-g.ny)**2; if(dd<bd){bd=dd; best=i;} });
+          name = REGIONS[best].name + ' 인근';
+        }
+        res({nx:g.nx, ny:g.ny, label:`📍 내 위치 (${name})`});
       },
       ()=>res(null), {timeout:5000, maximumAge:600000});
   });
