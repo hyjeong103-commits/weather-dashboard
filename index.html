@@ -328,6 +328,7 @@ async function renderBriefing(idx){
         ${idx===-1?`<span class="br-loc">${label}</span>`:''}</div>
       <div class="br-items">${[rain,feel,cmp,cmu].filter(Boolean).map(t=>`<div class="br-item">${t}</div>`).join('')}</div>`;
   }catch(e){ box.style.display='none'; console.error('briefing', e); }
+  loadTable(r); // 기준 지점에서 가까운 순으로 표 정렬
 }
 
 function buildHead(){
@@ -341,22 +342,33 @@ function buildHead(){
   document.getElementById('headRow').innerHTML = h;
 }
 
+// 기준 지점에서 가까운 순으로 지역 정렬
+function orderedRegions(ref){
+  if (!ref || ref.nx==null) return REGIONS.slice();
+  return REGIONS.slice().sort((a,b)=>
+    ((a.nx-ref.nx)**2+(a.ny-ref.ny)**2) - ((b.nx-ref.nx)**2+(b.ny-ref.ny)**2));
+}
 async function loadAll(){
   buildHead();
   const status = document.getElementById('status');
   status.textContent = '불러오는 중...';
   Object.keys(cache).forEach(k=>delete cache[k]);
+  const [vbL] = vilageBases(), [tmFc] = midTmFcs();
+  document.getElementById('baseInfo').textContent =
+    `단기예보 발표: ${vbL.date.slice(4,6)}/${vbL.date.slice(6)} ${vbL.time.slice(0,2)}:${vbL.time.slice(2)} · 중기예보 발표: ${tmFc.slice(4,6)}/${tmFc.slice(6,8)} ${tmFc.slice(8,10)}:00`;
+  renderBriefing(briefIdx); // 위치 확인 후 loadTable 호출됨
+}
+async function loadTable(ref){
+  const status = document.getElementById('status');
+  const list = orderedRegions(ref);
   const [vbL, vbD] = vilageBases(), [tmFc, tmFc2] = midTmFcs();
   const today = kstNow();
   const toDate = s => new Date(`${s.slice(0,4)}-${s.slice(4,6)}-${s.slice(6,8)}`);
   const dayDiff = fc => Math.round((toDate(ymd(today)) - toDate(fc.slice(0,8))) / 86400000);
   const diff = dayDiff(tmFc), diff2 = dayDiff(tmFc2);
-  document.getElementById('baseInfo').textContent =
-    `단기예보 발표: ${vbL.date.slice(4,6)}/${vbL.date.slice(6)} ${vbL.time.slice(0,2)}:${vbL.time.slice(2)} · 중기예보 발표: ${tmFc.slice(4,6)}/${tmFc.slice(6,8)} ${tmFc.slice(8,10)}:00`;
-  renderBriefing(briefIdx);
 
   const body = document.getElementById('body');
-  body.innerHTML = REGIONS.map((r,i)=>{
+  body.innerHTML = list.map((r,i)=>{
     const sh = i%2 ? ' shade' : '';
     return `<tr class="region-row${sh}"><td class="region">${r.name}</td>${'<td></td>'.repeat(7)}</tr>
       <tr class="${sh.trim()}"><td class="label">날씨</td>${Array.from({length:7},(_,k)=>`<td class="wx" id="w${i}_${k}">⋯</td>`).join('')}</tr>
@@ -366,7 +378,7 @@ async function loadAll(){
   }).join('');
 
   let done = 0;
-  await Promise.all(REGIONS.map(async (r,i)=>{
+  await Promise.all(list.map(async (r,i)=>{
     try{
       const [vilL, vilD, land, ta, land2, ta2] = await Promise.all([
         getVilage(r.nx,r.ny,vbL), getVilage(r.nx,r.ny,vbD),
@@ -392,7 +404,7 @@ async function loadAll(){
       for (let k=0;k<7;k++) document.getElementById(`w${i}_${k}`).innerHTML = `<span class="err">오류</span>`;
       console.error(r.name, e);
     }
-    status.textContent = `불러오는 중... (${++done}/${REGIONS.length})`;
+    status.textContent = `불러오는 중... (${++done}/${list.length})`;
   }));
   status.textContent = `업데이트: ${kstNow().toTimeString().slice(0,5)} KST`;
 }

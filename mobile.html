@@ -321,28 +321,40 @@ async function renderBriefing(idx){
         ${idx===-1?`<span class="br-loc">${label}</span>`:''}</div>
       <div class="br-items">${[rain,feel,cmp,cmu].filter(Boolean).map(t=>`<div class="br-item">${t}</div>`).join('')}</div>`;
   }catch(e){ box.style.display='none'; console.error('briefing', e); }
+  loadTable(r); // 기준 지점에서 가까운 순으로 카드 정렬
 }
 
+// 기준 지점에서 가까운 순으로 지역 정렬
+function orderedRegions(ref){
+  if (!ref || ref.nx==null) return REGIONS.slice();
+  return REGIONS.slice().sort((a,b)=>
+    ((a.nx-ref.nx)**2+(a.ny-ref.ny)**2) - ((b.nx-ref.nx)**2+(b.ny-ref.ny)**2));
+}
 async function loadAll(){
   const status = document.getElementById('status');
   status.textContent = '불러오는 중...';
   Object.keys(cache).forEach(k=>delete cache[k]);
+  const [vbL] = vilageBases(), [tmFc] = midTmFcs();
+  document.getElementById('baseInfo').textContent =
+    `단기 발표 ${vbL.date.slice(4,6)}/${vbL.date.slice(6)} ${vbL.time.slice(0,2)}:${vbL.time.slice(2)} · 중기 발표 ${tmFc.slice(4,6)}/${tmFc.slice(6,8)} ${tmFc.slice(8,10)}:00`;
+  renderBriefing(briefIdx); // 위치 확인 후 loadTable 호출됨
+}
+async function loadTable(ref){
+  const status = document.getElementById('status');
+  const list = orderedRegions(ref);
   const [vbL, vbD] = vilageBases(), [tmFc, tmFc2] = midTmFcs();
   const today = kstNow();
   const toDate = s => new Date(`${s.slice(0,4)}-${s.slice(4,6)}-${s.slice(6,8)}`);
   const dayDiff = fc => Math.round((toDate(ymd(today)) - toDate(fc.slice(0,8))) / 86400000);
   const diff = dayDiff(tmFc), diff2 = dayDiff(tmFc2);
-  document.getElementById('baseInfo').textContent =
-    `단기 발표 ${vbL.date.slice(4,6)}/${vbL.date.slice(6)} ${vbL.time.slice(0,2)}:${vbL.time.slice(2)} · 중기 발표 ${tmFc.slice(4,6)}/${tmFc.slice(6,8)} ${tmFc.slice(8,10)}:00`;
-  renderBriefing(briefIdx);
 
   const labels = ['오늘','내일','D+2','D+3','D+4','D+5','D+6'];
   const main = document.getElementById('main');
-  main.innerHTML = REGIONS.map((r,i)=>
+  main.innerHTML = list.map((r,i)=>
     `<div class="card"><h2>${r.name}</h2><div class="days" id="c${i}">불러오는 중...</div></div>`).join('');
 
   let done = 0;
-  await Promise.all(REGIONS.map(async (r,i)=>{
+  await Promise.all(list.map(async (r,i)=>{
     const box = document.getElementById(`c${i}`);
     try{
       const [vilL, vilD, land, ta, land2, ta2] = await Promise.all([
@@ -365,7 +377,7 @@ async function loadAll(){
       box.innerHTML = `<div class="err">데이터를 불러오지 못했습니다 (${e.message})</div>`;
       console.error(r.name, e);
     }
-    status.textContent = `불러오는 중... (${++done}/${REGIONS.length})`;
+    status.textContent = `불러오는 중... (${++done}/${list.length})`;
   }));
   status.textContent = `업데이트: ${kstNow().toTimeString().slice(0,5)} KST`;
 }
