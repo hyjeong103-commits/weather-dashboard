@@ -33,6 +33,8 @@ if (matchMedia('(max-width: 767px)').matches && !location.search.includes('pc'))
   tbody tr.region-row td{border-top:2px solid #9a9a9a;}
   td.wx{font-size:20px;}
   td.wx .rt{display:block;font-size:10px;color:var(--min);font-weight:600;line-height:1.3;}
+  td.sp{padding:2px 8px;height:44px;}
+  .spark{width:100%;max-width:110px;display:block;margin:0 auto;}
   .tmin{color:var(--min);font-weight:600;}
   .tmax{color:var(--max);font-weight:600;}
   .sep{color:#aaa;margin:0 2px;}
@@ -147,7 +149,7 @@ function wfSeverity(wf){ // 중기 문자열 → 심각도
 function summarizeVilage(items){
   const byDate = {};
   for (const it of items){
-    const d = byDate[it.fcstDate] || (byDate[it.fcstDate] = {sev:0,pop:0,pcp:0,tmps:[],tmn:null,tmx:null,rh:[]});
+    const d = byDate[it.fcstDate] || (byDate[it.fcstDate] = {sev:0,pop:0,pcp:0,tmps:[],tmn:null,tmx:null,rh:[],hv:Array(24).fill(0)});
     const v = it.fcstValue;
     switch (it.category){
       case 'PTY': { const p=+v; let s=0;
@@ -156,7 +158,7 @@ function summarizeVilage(items){
         if (p>0) d.rh.push(+it.fcstTime.slice(0,2)); break; }
       case 'SKY': { const s=(+v>=3)?1:0; if (s>d.sev) d.sev=s; break; }
       case 'POP': d.pop = Math.max(d.pop, +v); break;
-      case 'PCP': d.pcp += parsePcp(v); break;
+      case 'PCP': { const mm = parsePcp(v); d.pcp += mm; d.hv[+it.fcstTime.slice(0,2)] = mm; break; }
       case 'TMP': d.tmps.push(+v); break;
       case 'TMN': d.tmn = Math.round(+v); break;
       case 'TMX': d.tmx = Math.round(+v); break;
@@ -185,6 +187,23 @@ function midDay(land, ta, idx){
   };
 }
 
+// 시간별 강수량(0~23시) 꺾은선 미니 그래프 — 빨간 점이 피크 시각
+function sparkline(hv, compact){
+  if (!hv || !hv.some(v=>v>0)) return '';
+  const W = compact?52:96, H = compact?18:26, LH = compact?9:11;
+  const max = Math.max(...hv, 1), top = 3, base = H-2;
+  const pts = hv.map((v,h)=>`${(h/23*W).toFixed(1)},${(base - v/max*(base-top)).toFixed(1)}`).join(' ');
+  const pk = hv.indexOf(Math.max(...hv));
+  const cx = (pk/23*W).toFixed(1);
+  const cy = (base - hv[pk]/max*(base-top)).toFixed(1);
+  const lx = Math.min(Math.max(pk/23*W, compact?9:18), W-(compact?9:18)).toFixed(1);
+  const label = compact ? `${pk}시` : `${pk}시 ${hv[pk]}mm`;
+  return `<svg viewBox="0 0 ${W} ${H+LH}" class="spark">`+
+    `<polygon points="0,${base} ${pts} ${W},${base}" fill="#1a6fc4" opacity="0.15"/>`+
+    `<polyline points="${pts}" fill="none" stroke="#1a6fc4" stroke-width="1.2"/>`+
+    `<circle cx="${cx}" cy="${cy}" r="1.8" fill="#d43c3c"/>`+
+    `<text x="${lx}" y="${H+LH-2}" font-size="${compact?7:8}" text-anchor="middle" fill="#777">${label}</text></svg>`;
+}
 function wxCell(sev,rt){
   if (sev==null) return '<span class="dim">-</span>';
   let s = EMOJI[SEV_EMOJI[sev]];
@@ -232,7 +251,8 @@ async function loadAll(){
     return `<tr class="region-row${sh}"><td class="region">${r.name}</td>${'<td></td>'.repeat(7)}</tr>
       <tr class="${sh.trim()}"><td class="label">날씨</td>${Array.from({length:7},(_,k)=>`<td class="wx" id="w${i}_${k}">⋯</td>`).join('')}</tr>
       <tr class="${sh.trim()}"><td class="label">기온</td>${Array.from({length:7},(_,k)=>`<td id="t${i}_${k}"></td>`).join('')}</tr>
-      <tr class="${sh.trim()}"><td class="label">강수량</td>${Array.from({length:7},(_,k)=>`<td id="r${i}_${k}"></td>`).join('')}</tr>`;
+      <tr class="${sh.trim()}"><td class="label">강수량</td>${Array.from({length:7},(_,k)=>`<td id="r${i}_${k}"></td>`).join('')}</tr>
+      <tr class="${sh.trim()}"><td class="label">시간별 강수</td>${Array.from({length:7},(_,k)=>`<td class="sp" id="g${i}_${k}"></td>`).join('')}</tr>`;
   }).join('');
 
   let done = 0;
@@ -249,13 +269,14 @@ async function loadAll(){
         let cell = null, isMid = false;
         if (k<=3 && days[dateKey]){
           const d = days[dateKey];
-          cell = {sev:d.sev, pop:d.pop, pcp:d.pcp, tmin:d.tmn, tmax:d.tmx, rt:d.rt};
+          cell = {sev:d.sev, pop:d.pop, pcp:d.pcp, tmin:d.tmn, tmax:d.tmx, rt:d.rt, hv:d.hv};
         } else {
           cell = mergeMid(midDay(land, ta, k+diff), midDay(land2, ta2, k+diff2)); isMid = true;
         }
         document.getElementById(`w${i}_${k}`).innerHTML = wxCell(cell && cell.sev, cell && cell.rt);
         document.getElementById(`t${i}_${k}`).innerHTML = cell ? tempCell(cell.tmin, cell.tmax) : '<span class="dim">-</span>';
         document.getElementById(`r${i}_${k}`).innerHTML = cell ? rainCell(cell.pop, isMid?null:cell.pcp) : '<span class="dim">-</span>';
+        document.getElementById(`g${i}_${k}`).innerHTML = (!isMid && cell && cell.hv) ? (sparkline(cell.hv) || '<span class="dim">·</span>') : '<span class="dim">-</span>';
       }
     }catch(e){
       for (let k=0;k<7;k++) document.getElementById(`w${i}_${k}`).innerHTML = `<span class="err">오류</span>`;
