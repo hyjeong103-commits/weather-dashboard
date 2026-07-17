@@ -46,6 +46,16 @@
   .br-items{display:flex;flex-direction:column;gap:6px;font-size:13.5px;line-height:1.4;}
   .br-loc{display:block;font-weight:400;font-size:11.5px;color:#666;margin-top:3px;}
   .br-item b{font-weight:700;}
+  .tabs{display:flex;gap:6px;margin:8px 8px 0;}
+  .tab{flex:1;border:1px solid var(--line);background:#fff;color:#555;border-radius:8px;padding:8px 0;font-size:13.5px;cursor:pointer;}
+  .tab.active{background:var(--blue);color:#fff;border-color:var(--blue);font-weight:700;}
+  .searchbar{display:flex;gap:6px;margin:8px;}
+  .searchbar input{flex:1;padding:9px 10px;border:1px solid var(--line);border-radius:8px;font-size:14px;}
+  .cand-btn{display:block;width:calc(100% - 16px);margin:4px 8px;padding:8px 10px;border:1px solid var(--line);background:#fff;border-radius:8px;font-size:13px;text-align:left;}
+  #places{padding-top:4px;}
+  .card h2 .sub{font-weight:400;font-size:10.5px;color:#888;margin-left:4px;}
+  .card h2 .rm{float:right;border:none;background:none;color:#999;font-size:15px;cursor:pointer;padding:0 2px;}
+  .err-inline{color:#c33;font-size:12px;padding:8px 10px;}
   .today-col{background:#eef4fd;}
   .foot{font-size:11px;color:#999;padding:4px 10px 14px;}
   .foot a{color:var(--blue);}
@@ -58,8 +68,22 @@
 </header>
 <div class="meta" id="baseInfo"></div>
 <div id="status"></div>
+<div class="tabs">
+  <button class="tab active" id="tabAll" onclick="showTab('all')">전국 요약</button>
+  <button class="tab" id="tabSearch" onclick="showTab('search')">지역 검색</button>
+</div>
+<div id="viewSearch" style="display:none">
+  <div class="searchbar">
+    <input id="q" placeholder="동/구/시 검색 (예: 광진구, 구리시)" onkeydown="if(event.key==='Enter')searchPlace()">
+    <button class="refresh" onclick="searchPlace()">검색</button>
+  </div>
+  <div id="cand"></div>
+  <div id="places"></div>
+</div>
+<div id="viewAll">
 <div id="brief" class="brief" style="display:none"></div>
 <main id="main"></main>
+</div>
 <div class="foot">자료: 기상청 단기예보·중기예보 (공공데이터포털) · <a href="index.html?pc">PC 버전</a></div>
 
 <script>
@@ -380,6 +404,70 @@ async function loadTable(ref){
     status.textContent = `불러오는 중... (${++done}/${list.length})`;
   }));
   status.textContent = `업데이트: ${kstNow().toTimeString().slice(0,5)} KST`;
+}
+
+// ── 지역 검색 탭 ──
+function showTab(t){
+  document.getElementById('viewAll').style.display = t==='all' ? '' : 'none';
+  document.getElementById('viewSearch').style.display = t==='search' ? '' : 'none';
+  document.getElementById('tabAll').classList.toggle('active', t==='all');
+  document.getElementById('tabSearch').classList.toggle('active', t==='search');
+}
+// 한 지역(임의 격자점)의 7일 데이터
+async function regionCells(r){
+  const [vbL, vbD] = vilageBases(), [tmFc, tmFc2] = midTmFcs();
+  const today = kstNow();
+  const toDate = s => new Date(`${s.slice(0,4)}-${s.slice(4,6)}-${s.slice(6,8)}`);
+  const dayDiff = fc => Math.round((toDate(ymd(today)) - toDate(fc.slice(0,8))) / 86400000);
+  const diff = dayDiff(tmFc), diff2 = dayDiff(tmFc2);
+  const [vilL, vilD, land, ta, land2, ta2] = await Promise.all([
+    getVilage(r.nx,r.ny,vbL), getVilage(r.nx,r.ny,vbD),
+    getMidLand(r.land,tmFc), getMidTa(r.ta,tmFc),
+    getMidLand(r.land,tmFc2), getMidTa(r.ta,tmFc2)
+  ]);
+  const days = summarizeVilage(mergeVilage(vilD, vilL));
+  const out = [];
+  for (let k=0;k<7;k++){
+    const dateKey = ymd(addDays(today,k));
+    let cell = null, isMid = false;
+    if (k<=3 && days[dateKey]){
+      const d = days[dateKey];
+      cell = {sev:d.sev, pop:d.pop, pcp:d.pcp, tmin:d.tmn, tmax:d.tmx, rt:d.rt, hv:d.hv};
+    } else { cell = mergeMid(midDay(land, ta, k+diff), midDay(land2, ta2, k+diff2)); isMid = true; }
+    out.push({cell, isMid, date: addDays(today,k)});
+  }
+  return out;
+}
+async function searchPlace(){
+  const q = document.getElementById('q').value.trim();
+  const cand = document.getElementById('cand');
+  if (!q){ cand.innerHTML=''; return; }
+  cand.innerHTML = '<div class="err-inline" style="color:#777">검색 중...</div>';
+  try{
+    const j = await fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&q=${encodeURIComponent(q)}&accept-language=ko&countrycodes=kr&limit=5`).then(r=>r.json());
+    if (!j.length){ cand.innerHTML = '<div class="err-inline" style="color:#777">검색 결과가 없습니다</div>'; return; }
+    cand.innerHTML = j.map(p=>{
+      const short = p.display_name.split(',').slice(0,2).map(s=>s.trim()).reverse().join(' ').replace(/'/g,'');
+      return `<button class="cand-btn" onclick="addPlace(${p.lat},${p.lon},'${short}')">${p.display_name.split(',').slice(0,4).join(', ')}</button>`;
+    }).join('');
+  }catch(e){ cand.innerHTML = '<div class="err-inline">검색 실패 — 잠시 후 다시 시도하세요</div>'; }
+}
+let placeSeq = 0;
+async function addPlace(lat, lon, name){
+  document.getElementById('cand').innerHTML = '';
+  const g = latLonToGrid(+lat, +lon);
+  const near = orderedRegions(g)[0]; // D+4~ 중기예보는 가장 가까운 권역 사용
+  const r = {name, land:near.land, ta:near.ta, nx:g.nx, ny:g.ny};
+  const id = 'pl' + (placeSeq++);
+  document.getElementById('places').insertAdjacentHTML('afterbegin',
+    `<div class="card" id="${id}"><h2>${name}<span class="sub">중기: ${near.name}</span><button class="rm" onclick="document.getElementById('${id}').remove()">✕</button></h2><div class="pbody"><div class="err-inline" style="color:#777">불러오는 중...</div></div></div>`);
+  const body = document.querySelector(`#${id} .pbody`);
+  try{
+    const cells = await regionCells(r);
+    const labels = ['오늘','내일','D+2','D+3','D+4','D+5','D+6'];
+    body.innerHTML = `<div class="days">${cells.map((c,k)=>
+      dayHTML(labels[k], `${c.date.getMonth()+1}/${c.date.getDate()}(${WD[c.date.getDay()]})`, c.cell, c.isMid, k===0)).join('')}</div>`;
+  }catch(e){ body.innerHTML = `<div class="err-inline">데이터를 불러오지 못했습니다 (${e.message})</div>`; }
 }
 loadAll();
 </script>
