@@ -302,7 +302,7 @@ function useMyLocation(){
         }
         res({nx:g.nx, ny:g.ny, label:`📍 내 위치 (${name})`});
       },
-      ()=>res(null), {timeout:5000, maximumAge:600000});
+      ()=>res(null), {timeout:3000, maximumAge:1800000});
   });
 }
 let briefIdx = -1; // 기본: 내 위치 (권한 거부/실패 시 서울 북부)
@@ -369,12 +369,18 @@ function buildHead(){
   document.getElementById('headRow').innerHTML = h;
 }
 
-// 기준 지점에서 가까운 순으로 지역 정렬
+// 내 권역(도 단위)을 먼저, 나머지는 원래 순서 유지
+// 예: 서울 강북 → 서울 북부, 서울 남부, (원래 순서) / 부산 → 경상 남부, 경상 북부, 서울..., 경기...
 function orderedRegions(ref){
   if (!ref || ref.nx==null) return REGIONS.slice();
-  return REGIONS.slice().sort((a,b)=>
-    ((a.nx-ref.nx)**2+(a.ny-ref.ny)**2) - ((b.nx-ref.nx)**2+(b.ny-ref.ny)**2));
+  const dist = r => (r.nx-ref.nx)**2 + (r.ny-ref.ny)**2;
+  const nearest = REGIONS.reduce((a,b)=> dist(a)<=dist(b) ? a : b);
+  const grp = nearest.name.split(' ')[0];
+  const mine = REGIONS.filter(r=>r.name.split(' ')[0]===grp).sort((a,b)=>dist(a)-dist(b));
+  const rest = REGIONS.filter(r=>r.name.split(' ')[0]!==grp);
+  return [...mine, ...rest];
 }
+let tableSeq = 0, lastOrder = '';
 async function loadAll(){
   buildHead();
   const status = document.getElementById('status');
@@ -383,11 +389,17 @@ async function loadAll(){
   const [vbL] = vilageBases(), [tmFc] = midTmFcs();
   document.getElementById('baseInfo').textContent =
     `단기예보 발표: ${vbL.date.slice(4,6)}/${vbL.date.slice(6)} ${vbL.time.slice(0,2)}:${vbL.time.slice(2)} · 중기예보 발표: ${tmFc.slice(4,6)}/${tmFc.slice(6,8)} ${tmFc.slice(8,10)}:00`;
-  renderBriefing(briefIdx); // 위치 확인 후 loadTable 호출됨
+  lastOrder = '';
+  loadTable(null);          // 위치를 기다리지 않고 기본 순서로 즉시 로딩 시작
+  renderBriefing(briefIdx); // 위치 확인되면 순서만 재배치 (데이터는 캐시 재사용)
 }
 async function loadTable(ref){
   const status = document.getElementById('status');
   const list = orderedRegions(ref);
+  const key = list.map(r=>r.name).join('|');
+  if (key === lastOrder) return; // 순서 변화 없으면 다시 그리지 않음
+  lastOrder = key;
+  const seq = ++tableSeq;
   const [vbL, vbD] = vilageBases(), [tmFc, tmFc2] = midTmFcs();
   const today = kstNow();
   const toDate = s => new Date(`${s.slice(0,4)}-${s.slice(4,6)}-${s.slice(6,8)}`);
@@ -412,6 +424,7 @@ async function loadTable(ref){
         getMidLand(r.land,tmFc), getMidTa(r.ta,tmFc),
         getMidLand(r.land,tmFc2), getMidTa(r.ta,tmFc2)
       ]);
+      if (seq !== tableSeq) return; // 새 정렬로 다시 그리는 중이면 중단
       const days = summarizeVilage(mergeVilage(vilD, vilL));
       for (let k=0;k<7;k++){
         const dateKey = ymd(addDays(today,k));
@@ -428,12 +441,13 @@ async function loadTable(ref){
         document.getElementById(`g${i}_${k}`).innerHTML = (!isMid && cell && cell.hv) ? (sparkline(cell.hv) || '<span class="dim">·</span>') : '<span class="dim">-</span>';
       }
     }catch(e){
+      if (seq !== tableSeq) return;
       for (let k=0;k<7;k++) document.getElementById(`w${i}_${k}`).innerHTML = `<span class="err">오류</span>`;
       console.error(r.name, e);
     }
-    status.textContent = `불러오는 중... (${++done}/${list.length})`;
+    if (seq === tableSeq) status.textContent = `불러오는 중... (${++done}/${list.length})`;
   }));
-  status.textContent = `업데이트: ${kstNow().toTimeString().slice(0,5)} KST`;
+  if (seq === tableSeq) status.textContent = `업데이트: ${kstNow().toTimeString().slice(0,5)} KST`;
 }
 
 // ── 지역 검색 탭 ──
