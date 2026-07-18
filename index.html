@@ -77,7 +77,7 @@ if (matchMedia('(max-width: 767px)').matches && !location.search.includes('pc'))
 </div>
 <div id="viewSearch" style="display:none">
   <div class="searchbar">
-    <input id="q" placeholder="동/구/시 이름 검색 (예: 광진구, 구리시, 속초시)" onkeydown="if(event.key==='Enter')searchPlace()">
+    <input id="q" placeholder="동/구/시 이름 검색 (예: 광진구, 구리시, 속초시)" oninput="onQueryInput()" onkeydown="if(event.key==='Enter')searchPlace()" autocomplete="off">
     <button class="refresh" onclick="searchPlace()">검색</button>
   </div>
   <div id="cand"></div>
@@ -482,19 +482,27 @@ async function regionCells(r){
   }
   return out;
 }
+let qTimer = null, qSeq = 0;
+function onQueryInput(){ // 입력 중 자동 추천 (0.4초 디바운스)
+  clearTimeout(qTimer);
+  const q = document.getElementById('q').value.trim();
+  if (q.length < 2){ document.getElementById('cand').innerHTML = ''; return; }
+  qTimer = setTimeout(searchPlace, 400);
+}
 async function searchPlace(){
   const q = document.getElementById('q').value.trim();
   const cand = document.getElementById('cand');
   if (!q){ cand.innerHTML=''; return; }
-  cand.innerHTML = '검색 중...';
+  const my = ++qSeq;
   try{
     const j = await fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&q=${encodeURIComponent(q)}&accept-language=ko&countrycodes=kr&limit=5`).then(r=>r.json());
+    if (my !== qSeq) return; // 더 최신 입력의 검색 결과가 있으면 무시
     if (!j.length){ cand.innerHTML = '<span class="dim">검색 결과가 없습니다</span>'; return; }
     cand.innerHTML = j.map(p=>{
       const short = p.display_name.split(',').slice(0,2).map(s=>s.trim()).reverse().join(' ').replace(/'/g,'');
       return `<button class="cand-btn" onclick="addPlace(${p.lat},${p.lon},'${short}')">${p.display_name.split(',').slice(0,4).join(', ')}</button>`;
     }).join('');
-  }catch(e){ cand.innerHTML = '<span class="err">검색 실패 — 잠시 후 다시 시도하세요</span>'; }
+  }catch(e){ if (my === qSeq) cand.innerHTML = '<span class="err">검색 실패 — 잠시 후 다시 시도하세요</span>'; }
 }
 let placeSeq = 0;
 async function addPlace(lat, lon, name){
