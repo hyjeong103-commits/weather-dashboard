@@ -207,7 +207,7 @@ function summarizeVilage(items){
   return byDate;
 }
 function midDay(land, ta, idx){
-  if (idx < 4 || idx > 10) return null;
+  if (!land || idx < 4 || idx > 10) return null;
   const am = land[`wf${idx}Am`], pm = land[`wf${idx}Pm`], one = land[`wf${idx}`];
   const sevs = [am,pm,one].map(wfSeverity).filter(s=>s!=null);
   const rAm = land[`rnSt${idx}Am`], rPm = land[`rnSt${idx}Pm`], rOne = land[`rnSt${idx}`];
@@ -322,7 +322,7 @@ async function renderBriefing(idx){
     const [vbL, vbD] = vilageBases();
     const today = kstNow(), tKey = ymd(today), yKey = ymd(addDays(today,-1));
     const [vilL, vilD, vilY] = await Promise.all([
-      getVilage(r.nx,r.ny,vbL), getVilage(r.nx,r.ny,vbD),
+      getVilage(r.nx,r.ny,vbL).catch(()=>[]), getVilage(r.nx,r.ny,vbD).catch(()=>[]),
       getVilage(r.nx,r.ny,{date:yKey, time:'0200'}).catch(()=>null)
     ]);
     const d = summarizeVilage(mergeVilage(vilD, vilL))[tKey];
@@ -406,13 +406,16 @@ async function loadTable(ref){
   await Promise.all(list.map(async (r,i)=>{
     const box = document.getElementById(`c${i}`);
     try{
+      // 일부 발표가 API에서 지워져도(NO_DATA) 전체가 실패하지 않도록 개별 허용
       const [vilL, vilD, land, ta, land2, ta2] = await Promise.all([
-        getVilage(r.nx,r.ny,vbL), getVilage(r.nx,r.ny,vbD),
-        getMidLand(r.land,tmFc), getMidTa(r.ta,tmFc),
-        getMidLand(r.land,tmFc2), getMidTa(r.ta,tmFc2)
+        getVilage(r.nx,r.ny,vbL).catch(()=>[]), getVilage(r.nx,r.ny,vbD).catch(()=>[]),
+        getMidLand(r.land,tmFc).catch(()=>null), getMidTa(r.ta,tmFc).catch(()=>null),
+        getMidLand(r.land,tmFc2).catch(()=>null), getMidTa(r.ta,tmFc2).catch(()=>null)
       ]);
       if (seq !== tableSeq) return; // 새 정렬로 다시 그리는 중이면 중단
-      const days = summarizeVilage(mergeVilage(vilD, vilL));
+      const merged = mergeVilage(vilD, vilL);
+      if (!merged.length) throw new Error('단기예보 응답 없음');
+      const days = summarizeVilage(merged);
       box.innerHTML = labels.map((lb,k)=>{
         const d = addDays(today,k);
         const dateKey = ymd(d);
@@ -500,11 +503,13 @@ async function regionCells(r){
   const dayDiff = fc => Math.round((toDate(ymd(today)) - toDate(fc.slice(0,8))) / 86400000);
   const diff = dayDiff(tmFc), diff2 = dayDiff(tmFc2);
   const [vilL, vilD, land, ta, land2, ta2] = await Promise.all([
-    getVilage(r.nx,r.ny,vbL), getVilage(r.nx,r.ny,vbD),
-    getMidLand(r.land,tmFc), getMidTa(r.ta,tmFc),
-    getMidLand(r.land,tmFc2), getMidTa(r.ta,tmFc2)
+    getVilage(r.nx,r.ny,vbL).catch(()=>[]), getVilage(r.nx,r.ny,vbD).catch(()=>[]),
+    getMidLand(r.land,tmFc).catch(()=>null), getMidTa(r.ta,tmFc).catch(()=>null),
+    getMidLand(r.land,tmFc2).catch(()=>null), getMidTa(r.ta,tmFc2).catch(()=>null)
   ]);
-  const days = summarizeVilage(mergeVilage(vilD, vilL));
+  const merged = mergeVilage(vilD, vilL);
+  if (!merged.length) throw new Error('단기예보 응답 없음');
+  const days = summarizeVilage(merged);
   const out = [];
   for (let k=0;k<7;k++){
     const dateKey = ymd(addDays(today,k));
