@@ -381,7 +381,12 @@ async function loadAll(){
 }
 async function loadTable(ref){
   const status = document.getElementById('status');
-  const list = orderedRegions(ref);
+  let list = orderedRegions(ref);
+  // 내 위치(GPS)가 잡혔으면 맨 위에 '내 위치' 카드 추가 — 오늘~D+3은 내 격자 정확값, D+4~는 가장 가까운 권역
+  if (ref && ref.label){
+    const near = list[0];
+    list = [{name: ref.label, land: near.land, ta: near.ta, nx: ref.nx, ny: ref.ny}, ...list];
+  }
   const key = list.map(r=>r.name).join('|');
   if (key === lastOrder) return; // 순서 변화 없으면 다시 그리지 않음
   lastOrder = key;
