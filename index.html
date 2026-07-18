@@ -60,6 +60,12 @@ if (matchMedia('(max-width: 767px)').matches && !location.search.includes('pc'))
   .place table{min-width:0;width:100%;}
   .place td,.place th{font-size:12.5px;}
   .place .pbody{padding:0 8px 8px;}
+  .clickable{cursor:pointer;}
+  td.clickable:hover{background:#eaf2fc;}
+  #rainModal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:100;align-items:center;justify-content:center;}
+  .rm-box{background:#fff;border-radius:12px;padding:14px 16px;width:min(580px,94vw);box-shadow:0 8px 30px rgba(0,0,0,.25);}
+  .rm-head{display:flex;align-items:center;justify-content:space-between;font-weight:700;color:var(--blue);margin-bottom:8px;font-size:14px;}
+  .rm-head button{border:none;background:none;font-size:16px;color:#999;cursor:pointer;}
   .foot{margin-top:12px;font-size:12px;color:#999;}
   .foot a{color:var(--blue);}
 </style>
@@ -184,7 +190,7 @@ function summarizeVilage(items){
   const byDate = {};
   for (const it of items){
     const d = byDate[it.fcstDate] || (byDate[it.fcstDate] = {sev:0,pop:0,pcp:0,tmps:[],tmn:null,tmx:null,rh:[],
-      hv:Array(24).fill(0), ht:Array(24).fill(null), hh:Array(24).fill(null), hs:Array(24).fill(null), hp:Array(24).fill(0)});
+      hv:Array(24).fill(0), ht:Array(24).fill(null), hh:Array(24).fill(null), hs:Array(24).fill(null), hp:Array(24).fill(0), hq:Array(24).fill(null)});
     const v = it.fcstValue;
     const hr = +it.fcstTime.slice(0,2);
     switch (it.category){
@@ -194,7 +200,7 @@ function summarizeVilage(items){
         d.hp[hr] = p;
         if (p>0) d.rh.push(hr); break; }
       case 'SKY': { const s=(+v>=3)?1:0; if (s>d.sev) d.sev=s; d.hs[hr] = +v; break; }
-      case 'POP': d.pop = Math.max(d.pop, +v); break;
+      case 'POP': d.pop = Math.max(d.pop, +v); d.hq[hr] = +v; break;
       case 'PCP': { const mm = parsePcp(v); d.pcp += mm; d.hv[hr] = mm; break; }
       case 'TMP': d.tmps.push(+v); d.ht[hr] = +v; break;
       case 'REH': d.hh[hr] = +v; break;
@@ -431,14 +437,25 @@ async function loadTable(ref){
         let cell = null, isMid = false;
         if (k<=3 && days[dateKey]){
           const d = days[dateKey];
-          cell = {sev:d.sev, pop:d.pop, pcp:d.pcp, tmin:d.tmn, tmax:d.tmx, rt:d.rt, hv:d.hv};
+          cell = {sev:d.sev, pop:d.pop, pcp:d.pcp, tmin:d.tmn, tmax:d.tmx, rt:d.rt, hv:d.hv, hq:d.hq};
         } else {
           cell = mergeMid(midDay(land, ta, k+diff), midDay(land2, ta2, k+diff2)); isMid = true;
         }
         document.getElementById(`w${i}_${k}`).innerHTML = wxCell(cell && cell.sev, cell && cell.rt);
         document.getElementById(`t${i}_${k}`).innerHTML = cell ? tempCell(cell.tmin, cell.tmax) : '<span class="dim">-</span>';
         document.getElementById(`r${i}_${k}`).innerHTML = cell ? rainCell(cell.pop, isMid?null:cell.pcp) : '<span class="dim">-</span>';
-        document.getElementById(`g${i}_${k}`).innerHTML = (!isMid && cell && cell.hv) ? (sparkline(cell.hv) || '<span class="dim">·</span>') : '<span class="dim">-</span>';
+        const gEl = document.getElementById(`g${i}_${k}`);
+        const spHtml = (!isMid && cell && cell.hv) ? sparkline(cell.hv) : '';
+        if (spHtml){
+          gEl.innerHTML = spHtml;
+          gEl.classList.add('clickable');
+          gEl.dataset.hv = JSON.stringify(cell.hv);
+          gEl.dataset.hq = JSON.stringify(cell.hq || []);
+          gEl.dataset.title = `${r.name} · ${dateKey.slice(4,6)}/${dateKey.slice(6)} 시간별 강수`;
+          gEl.onclick = ()=>showRain(gEl);
+        } else {
+          gEl.innerHTML = (!isMid && cell) ? '<span class="dim">·</span>' : '<span class="dim">-</span>';
+        }
       }
     }catch(e){
       if (seq !== tableSeq) return;
@@ -448,6 +465,47 @@ async function loadTable(ref){
     if (seq === tableSeq) status.textContent = `불러오는 중... (${++done}/${list.length})`;
   }));
   if (seq === tableSeq) status.textContent = `업데이트: ${kstNow().toTimeString().slice(0,5)} KST`;
+}
+
+// ── 강수 상세 차트 팝업 ──
+function sparkCellHtml(cell, isMid, title){
+  const sp = (!isMid && cell && cell.hv) ? sparkline(cell.hv) : '';
+  if (!sp) return `<td class="sp"><span class="dim">${(!isMid&&cell)?'·':'-'}</span></td>`;
+  return `<td class="sp clickable" data-hv='${JSON.stringify(cell.hv)}' data-hq='${JSON.stringify(cell.hq||[])}' data-title="${title}" onclick="showRain(this)">${sp}</td>`;
+}
+function showRain(el){
+  const hv = JSON.parse(el.dataset.hv || '[]');
+  const hq = JSON.parse(el.dataset.hq || '[]');
+  if (!hv.length) return;
+  document.getElementById('rmTitle').textContent = el.dataset.title || '시간별 강수';
+  document.getElementById('rmChart').innerHTML = bigRainChart(hv, hq);
+  document.getElementById('rainModal').style.display = 'flex';
+}
+function bigRainChart(hv, hq){
+  const W=520, H=230, L=36, B=32, T=20, R=12;
+  const cw = (W-L-R)/24;
+  const max = Math.max(...hv, 1);
+  let grid='', bars='', labels='', popLine='';
+  for (const f of [0, 0.5, 1]){
+    const y = H-B-(H-B-T)*f;
+    grid += `<line x1="${L}" y1="${y}" x2="${W-R}" y2="${y}" stroke="#eee"/>`
+          + `<text x="${L-6}" y="${y+3}" font-size="10" text-anchor="end" fill="#999">${(max*f).toFixed(1)}</text>`;
+  }
+  for (let h=0; h<24; h++){
+    const v = hv[h]||0, x = L+h*cw;
+    if (v>0){
+      const bh = (H-B-T)*v/max;
+      bars += `<rect x="${(x+1).toFixed(1)}" y="${(H-B-bh).toFixed(1)}" width="${(cw-2).toFixed(1)}" height="${bh.toFixed(1)}" fill="#1a6fc4" opacity="0.75" rx="1.5"/>`
+            + `<text x="${(x+cw/2).toFixed(1)}" y="${(H-B-bh-3).toFixed(1)}" font-size="9" text-anchor="middle" fill="#1a6fc4">${v}</text>`;
+    }
+    if (h%3===0) labels += `<text x="${(x+cw/2).toFixed(1)}" y="${H-B+15}" font-size="10" text-anchor="middle" fill="#777">${h}시</text>`;
+  }
+  const pts = [];
+  for (let h=0; h<24; h++) if (hq[h]!=null) pts.push(`${(L+h*cw+cw/2).toFixed(1)},${(H-B-(H-B-T)*hq[h]/100).toFixed(1)}`);
+  if (pts.length) popLine = `<polyline points="${pts.join(' ')}" fill="none" stroke="#d43c3c" stroke-width="1.5" stroke-dasharray="4 3" opacity="0.85"/>`;
+  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%">${grid}${bars}${popLine}${labels}
+    <text x="${L}" y="12" font-size="10.5" fill="#1a6fc4">■ 강수량(mm)</text>
+    <text x="${L+92}" y="12" font-size="10.5" fill="#d43c3c">┅ 강수확률(%, 0~100)</text></svg>`;
 }
 
 // ── 지역 검색 탭 ──
@@ -476,7 +534,7 @@ async function regionCells(r){
     let cell = null, isMid = false;
     if (k<=3 && days[dateKey]){
       const d = days[dateKey];
-      cell = {sev:d.sev, pop:d.pop, pcp:d.pcp, tmin:d.tmn, tmax:d.tmx, rt:d.rt, hv:d.hv};
+      cell = {sev:d.sev, pop:d.pop, pcp:d.pcp, tmin:d.tmn, tmax:d.tmx, rt:d.rt, hv:d.hv, hq:d.hq};
     } else { cell = mergeMid(midDay(land, ta, k+diff), midDay(land2, ta2, k+diff2)); isMid = true; }
     out.push({cell, isMid, date: addDays(today,k)});
   }
@@ -522,11 +580,17 @@ async function addPlace(lat, lon, name){
       <tr>${cells.map(c=>`<td class="wx">${wxCell(c.cell&&c.cell.sev, c.cell&&c.cell.rt)}</td>`).join('')}</tr>
       <tr>${cells.map(c=>`<td>${c.cell?tempCell(c.cell.tmin,c.cell.tmax):'<span class="dim">-</span>'}</td>`).join('')}</tr>
       <tr>${cells.map(c=>`<td>${c.cell?rainCell(c.cell.pop, c.isMid?null:c.cell.pcp):'<span class="dim">-</span>'}</td>`).join('')}</tr>
-      <tr>${cells.map(c=>`<td class="sp">${(!c.isMid&&c.cell&&c.cell.hv)?(sparkline(c.cell.hv)||'<span class="dim">·</span>'):'<span class="dim">-</span>'}</td>`).join('')}</tr>
+      <tr>${cells.map((c,k)=>sparkCellHtml(c.cell, c.isMid, `${name} · ${labels[k]} 시간별 강수`)).join('')}</tr>
     </table>`;
   }catch(e){ body.innerHTML = `<span class="err">데이터를 불러오지 못했습니다 (${e.message})</span>`; }
 }
 loadAll();
 </script>
+<div id="rainModal" onclick="this.style.display='none'">
+  <div class="rm-box" onclick="event.stopPropagation()">
+    <div class="rm-head"><span id="rmTitle"></span><button onclick="document.getElementById('rainModal').style.display='none'">✕</button></div>
+    <div id="rmChart"></div>
+  </div>
+</div>
 </body>
 </html>
