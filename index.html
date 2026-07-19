@@ -66,6 +66,23 @@ if (matchMedia('(max-width: 767px)').matches && !location.search.includes('pc'))
   .rm-box{background:#fff;border-radius:12px;padding:14px 16px;width:min(580px,94vw);box-shadow:0 8px 30px rgba(0,0,0,.25);}
   .rm-head{display:flex;align-items:center;justify-content:space-between;font-weight:700;color:var(--blue);margin-bottom:8px;font-size:14px;}
   .rm-head button{border:none;background:none;font-size:16px;color:#999;cursor:pointer;}
+  .cmp-bar{display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap;font-size:13px;color:#555;}
+  .cmp-bar select{font-size:13px;padding:5px 8px;border:1px solid var(--line);border-radius:6px;}
+  .cmp-note{font-size:12px;color:#999;}
+  #cmpBody table{min-width:820px;}
+  #cmpBody th.mdl{width:150px;text-align:left;padding-left:10px;}
+  #cmpBody td.cell{line-height:1.45;padding:6px 2px;}
+  #cmpBody .ce{font-size:19px;}
+  #cmpBody .ct{font-size:12px;}
+  #cmpBody .cp{font-size:11px;color:#666;}
+  #cmpBody .mname{font-weight:700;color:var(--blue);}
+  #cmpBody .mdesc{font-weight:400;font-size:11px;color:#999;display:block;}
+  #cmpBody tr.kma-row td{background:#f4f8fd;}
+  #cmpBody tr.agree td{border-top:2px solid #9a9a9a;font-weight:700;}
+  .agree-hi{color:#2e7d32;}
+  .agree-mid{color:#ef6c00;}
+  .agree-lo{color:#c62828;}
+  .cmp-legend{font-size:12px;color:#777;margin-top:10px;line-height:1.6;}
   .foot{margin-top:12px;font-size:12px;color:#999;}
   .foot a{color:var(--blue);}
 </style>
@@ -80,6 +97,15 @@ if (matchMedia('(max-width: 767px)').matches && !location.search.includes('pc'))
 <div class="tabs">
   <button class="tab active" id="tabAll" onclick="showTab('all')">전국 요약</button>
   <button class="tab" id="tabSearch" onclick="showTab('search')">지역 검색</button>
+  <button class="tab" id="tabCompare" onclick="showTab('compare')">모델 비교</button>
+</div>
+<div id="viewCompare" style="display:none">
+  <div class="cmp-bar">
+    기준 지역
+    <select id="cmpSel" onchange="renderCompare(+this.value)"></select>
+    <span class="cmp-note">기상청 + 해외 3개 예보모델을 나란히 비교합니다</span>
+  </div>
+  <div id="cmpBody"></div>
 </div>
 <div id="viewSearch" style="display:none">
   <div class="searchbar">
@@ -306,7 +332,7 @@ function useMyLocation(){
           REGIONS.forEach((r,i)=>{ const dd=(r.nx-g.nx)**2+(r.ny-g.ny)**2; if(dd<bd){bd=dd; best=i;} });
           name = REGIONS[best].name + ' 인근';
         }
-        res({nx:g.nx, ny:g.ny, label:`📍 내 위치 (${name})`});
+        res({nx:g.nx, ny:g.ny, lat, lon, label:`📍 내 위치 (${name})`});
       },
       ()=>res(null), {timeout:3000, maximumAge:1800000});
   });
@@ -532,12 +558,146 @@ function bigRainChart(hv, hq){
   return `<svg viewBox="0 0 ${W} ${H}" style="width:100%">${grid}${axis}${area}${line}${dots}${vals}${hours}${pops}${legend}</svg>`;
 }
 
-// ── 지역 검색 탭 ──
+// ── 탭 전환 ──
 function showTab(t){
-  document.getElementById('viewAll').style.display = t==='all' ? '' : 'none';
-  document.getElementById('viewSearch').style.display = t==='search' ? '' : 'none';
+  const views = {all:'viewAll', search:'viewSearch', compare:'viewCompare'};
+  for (const k in views) document.getElementById(views[k]).style.display = (k===t) ? '' : 'none';
   document.getElementById('tabAll').classList.toggle('active', t==='all');
   document.getElementById('tabSearch').classList.toggle('active', t==='search');
+  document.getElementById('tabCompare').classList.toggle('active', t==='compare');
+  if (t==='compare' && !cmpInit){ cmpInit = true; initCompare(); }
+}
+
+// ── 모델 비교 탭 ──
+// 기상청 격자 → 위경도 역변환 (해외 모델과 같은 지점을 보기 위함)
+function gridToLatLon(nx, ny){
+  const RE=6371.00877, GRID=5.0, DEGRAD=Math.PI/180, RADDEG=180/Math.PI;
+  const re=RE/GRID, slat1=30*DEGRAD, slat2=60*DEGRAD, olon=126*DEGRAD, olat=38*DEGRAD, XO=43, YO=136;
+  let sn=Math.tan(Math.PI*0.25+slat2*0.5)/Math.tan(Math.PI*0.25+slat1*0.5);
+  sn=Math.log(Math.cos(slat1)/Math.cos(slat2))/Math.log(sn);
+  let sf=Math.tan(Math.PI*0.25+slat1*0.5); sf=Math.pow(sf,sn)*Math.cos(slat1)/sn;
+  let ro=Math.tan(Math.PI*0.25+olat*0.5); ro=re*sf/Math.pow(ro,sn);
+  const xn = nx - XO, yn = ro - ny + YO;
+  let ra = Math.sqrt(xn*xn + yn*yn); if (sn < 0) ra = -ra;
+  let alat = Math.pow((re*sf/ra), (1/sn));
+  alat = 2*Math.atan(alat) - Math.PI*0.5;
+  let theta;
+  if (Math.abs(xn) <= 0) theta = 0;
+  else if (Math.abs(yn) <= 0){ theta = Math.PI*0.5; if (xn < 0) theta = -theta; }
+  else theta = Math.atan2(xn, yn);
+  return { lat: alat*RADDEG, lon: (theta/sn + olon)*RADDEG };
+}
+const MODELS = [
+  {id:'ecmwf_ifs025', name:'ECMWF', desc:'유럽중기예보센터'},
+  {id:'gfs_seamless', name:'GFS',   desc:'미국 NOAA'},
+  {id:'icon_seamless',name:'ICON',  desc:'독일 DWD'},
+];
+// WMO 날씨 코드 → 심각도(0맑음 1구름 2눈 3비)
+function wmoSev(c){
+  if (c==null) return null;
+  if (c===0) return 0;
+  if (c<=3 || c===45 || c===48) return 1;
+  if ((c>=71 && c<=77) || c===85 || c===86) return 2;
+  return 3;
+}
+async function openMeteoDaily(lat, lon){
+  const models = MODELS.map(m=>m.id).join(',');
+  const u = `https://api.open-meteo.com/v1/forecast?latitude=${lat.toFixed(4)}&longitude=${lon.toFixed(4)}`
+    + `&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,precipitation_probability_max,weather_code`
+    + `&models=${models}&timezone=Asia%2FSeoul&forecast_days=7`;
+  return fetch(u).then(r=>r.json());
+}
+let cmpInit = false;
+function initCompare(){
+  const sel = document.getElementById('cmpSel');
+  sel.innerHTML = (myLoc ? `<option value="-1">📍 내 위치</option>` : '')
+    + REGIONS.map((g,i)=>`<option value="${i}">${g.name}</option>`).join('');
+  sel.value = (myLoc && briefIdx===-1) ? '-1' : String(briefIdx >= 0 ? briefIdx : 0);
+  renderCompare(+sel.value);
+}
+async function renderCompare(idx){
+  const box = document.getElementById('cmpBody');
+  box.innerHTML = '<span class="dim">불러오는 중...</span>';
+  // 기준 지점 결정
+  let r, lat, lon;
+  if (idx === -1 && myLoc){
+    const near = orderedRegions(myLoc)[0];
+    r = {name: myLoc.label, land: near.land, ta: near.ta, nx: myLoc.nx, ny: myLoc.ny};
+    lat = myLoc.lat; lon = myLoc.lon;
+  } else {
+    r = REGIONS[idx >= 0 ? idx : 0];
+  }
+  if (lat == null){ const p = gridToLatLon(r.nx, r.ny); lat = p.lat; lon = p.lon; }
+
+  const today = kstNow();
+  const labels = ['오늘','내일','D+2','D+3','D+4','D+5','D+6'];
+  const dates = Array.from({length:7},(_,k)=>addDays(today,k));
+  try{
+    const [kmaCells, om] = await Promise.all([
+      regionCells(r).catch(()=>null),
+      openMeteoDaily(lat, lon).catch(()=>null)
+    ]);
+    // 모델별 7일 데이터 정리
+    const rows = [];
+    if (kmaCells){
+      rows.push({name:'기상청', desc:'대한민국 KMA', kma:true, days: kmaCells.map(c=>c.cell ? {
+        sev:c.cell.sev, tmax:c.cell.tmax, tmin:c.cell.tmin,
+        pcp:(c.isMid ? null : c.cell.pcp), pop:c.cell.pop
+      } : null)});
+    }
+    if (om && om.daily){
+      const d = om.daily;
+      const dayIdx = dates.map(dt=>d.time.indexOf(ymd(dt).replace(/(\d{4})(\d{2})(\d{2})/,'$1-$2-$3')));
+      for (const m of MODELS){
+        rows.push({name:m.name, desc:m.desc, days: dayIdx.map(i=> i<0 ? null : {
+          sev: wmoSev(d['weather_code_'+m.id]?.[i]),
+          tmax: d['temperature_2m_max_'+m.id]?.[i]!=null ? Math.round(d['temperature_2m_max_'+m.id][i]) : null,
+          tmin: d['temperature_2m_min_'+m.id]?.[i]!=null ? Math.round(d['temperature_2m_min_'+m.id][i]) : null,
+          pcp:  d['precipitation_sum_'+m.id]?.[i],
+          pop:  d['precipitation_probability_max_'+m.id]?.[i]
+        })});
+      }
+    }
+    if (!rows.length){ box.innerHTML = '<span class="err">데이터를 불러오지 못했습니다</span>'; return; }
+
+    // 합의도: 각 날짜별로 "비/눈 온다"고 본 모델 수
+    const agree = dates.map((_,k)=>{
+      let yes=0, tot=0;
+      for (const row of rows){
+        const c = row.days[k]; if (!c || c.sev==null) continue;
+        tot++; if (c.sev>=2 || (c.pcp!=null && c.pcp>=0.1)) yes++;
+      }
+      return {yes, tot};
+    });
+
+    const cell = c => {
+      if (!c || c.sev==null) return '<td class="cell"><span class="dim">-</span></td>';
+      const wx = EMOJI[SEV_EMOJI[c.sev]];
+      const tp = (c.tmax!=null||c.tmin!=null)
+        ? `<div class="ct"><span class="tmax">${c.tmax ?? '-'}°</span><span class="sep">/</span><span class="tmin">${c.tmin ?? '-'}°</span></div>` : '';
+      let pl = '';
+      if (c.pcp!=null && c.pcp>0) pl = `${c.pcp}mm`;
+      else if (c.pop!=null) pl = `${c.pop}%`;
+      return `<td class="cell"><div class="ce">${wx}</div>${tp}<div class="cp">${pl}</div></td>`;
+    };
+    box.innerHTML = `<div style="overflow-x:auto"><table>
+      <tr><th class="mdl">모델</th>${labels.map((lb,k)=>
+        `<th>${lb}<span class="d">${dates[k].getMonth()+1}/${dates[k].getDate()}(${WD[dates[k].getDay()]})</span></th>`).join('')}</tr>
+      ${rows.map(row=>`<tr class="${row.kma?'kma-row':''}">
+        <th class="mdl"><span class="mname">${row.name}</span><span class="mdesc">${row.desc}</span></th>
+        ${row.days.map(cell).join('')}</tr>`).join('')}
+      <tr class="agree"><th class="mdl">비 예보 일치</th>${agree.map(a=>{
+        if (!a.tot) return '<td class="cell"><span class="dim">-</span></td>';
+        const cls = a.yes===0 || a.yes===a.tot ? 'agree-hi' : (a.yes*2>=a.tot ? 'agree-mid' : 'agree-lo');
+        return `<td class="cell"><span class="${cls}">${a.yes}/${a.tot}</span></td>`;
+      }).join('')}</tr>
+    </table></div>
+    <div class="cmp-legend">· <b>비 예보 일치</b>는 네 모델 중 몇 개가 그날 비/눈을 예상했는지입니다. <span class="agree-hi">0/4·4/4</span>는 예보가 일치해 신뢰도가 높고, <span class="agree-lo">1/4·2/4</span>는 모델 간 의견이 갈려 변동 가능성이 큽니다.<br>
+    · 기상청은 오늘~D+3 강수량(mm), D+4~D+6은 강수확률(%)을 표시합니다. 해외 모델은 7일 모두 강수량(mm) 기준입니다.<br>
+    · 자료: 기상청(공공데이터포털) · ECMWF/GFS/ICON(Open-Meteo)</div>`;
+  }catch(e){
+    box.innerHTML = `<span class="err">데이터를 불러오지 못했습니다 (${e.message})</span>`;
+  }
 }
 // 한 지역(임의 격자점)의 7일 데이터
 async function regionCells(r){
