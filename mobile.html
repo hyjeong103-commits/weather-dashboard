@@ -76,17 +76,18 @@
   .sk-best{background:#eaf6ec;color:#2e7d32;font-weight:700;}
   .sk-note{font-size:11px;color:#999;margin-top:7px;line-height:1.6;}
   #cmpBody{padding:0 8px 16px;}
-  #cmpBody .scroll{overflow-x:auto;background:#fff;border:1px solid var(--line);border-radius:8px;}
-  #cmpBody table{border-collapse:collapse;min-width:600px;width:100%;}
-  #cmpBody th,#cmpBody td{border:1px solid #eee;text-align:center;padding:4px 2px;font-size:11px;}
-  #cmpBody th.mdl{width:76px;text-align:left;padding-left:7px;background:#fafbfd;}
-  #cmpBody thead th{color:var(--blue);font-size:11px;}
-  #cmpBody thead th .d{display:block;font-size:9.5px;color:#aaa;font-weight:400;}
-  #cmpBody .ce{font-size:17px;line-height:1.25;}
-  #cmpBody .ct{font-size:11px;white-space:nowrap;}
-  #cmpBody .cp{font-size:10px;color:#777;}
-  #cmpBody .mname{font-weight:700;color:var(--blue);font-size:11.5px;}
-  #cmpBody .mdesc{display:block;font-weight:400;font-size:9.5px;color:#aaa;}
+  /* 가로 스크롤 없이 한 화면에 들어가도록 고정폭 + 축소 */
+  #cmpBody .scroll{background:#fff;border:1px solid var(--line);border-radius:8px;overflow:hidden;}
+  #cmpBody table{border-collapse:collapse;width:100%;table-layout:fixed;}
+  #cmpBody th,#cmpBody td{border:1px solid #eee;text-align:center;padding:3px 0;font-size:10px;}
+  #cmpBody th.mdl{width:48px;text-align:left;padding-left:5px;background:#fafbfd;}
+  #cmpBody thead th{color:var(--blue);font-size:10.5px;line-height:1.2;}
+  #cmpBody thead th .d{display:block;font-size:9px;color:#aaa;font-weight:400;}
+  #cmpBody .ce{font-size:15px;line-height:1.2;}
+  #cmpBody .ct{font-size:9.5px;white-space:nowrap;letter-spacing:-0.6px;}
+  #cmpBody .cp{font-size:9px;color:#777;letter-spacing:-0.4px;}
+  #cmpBody .mname{font-weight:700;color:var(--blue);font-size:10.5px;display:block;line-height:1.2;}
+  #cmpBody .mdesc{display:block;font-weight:400;font-size:8.5px;color:#aaa;line-height:1.2;}
   #cmpBody tr.kma-row td{background:#f4f8fd;}
   #cmpBody tr.agree td,#cmpBody tr.agree th{border-top:2px solid #bbb;font-weight:700;}
   .agree-hi{color:#2e7d32;} .agree-mid{color:#ef6c00;} .agree-lo{color:#c62828;}
@@ -745,17 +746,17 @@ async function renderCompare(idx){
       const tp = (c.tmax!=null||c.tmin!=null)
         ? `<div class="ct"><span class="tmax">${c.tmax ?? '-'}</span><span class="sep">/</span><span class="tmin">${c.tmin ?? '-'}°</span></div>` : '';
       let pl = '';
-      if (c.pcp!=null && c.pcp>0) pl = `${c.pcp}mm`;
+      if (c.pcp!=null && c.pcp>0) pl = `${c.pcp>=10 ? Math.round(c.pcp) : c.pcp}mm`;
       else if (c.pop!=null) pl = `${c.pop}%`;
       return `<td><div class="ce">${wx}</div>${tp}<div class="cp">${pl}</div></td>`;
     };
     box.innerHTML = `<div class="scroll"><table>
       <thead><tr><th class="mdl">모델</th>${labels.map((lb,k)=>
-        `<th>${lb}<span class="d">${dates[k].getMonth()+1}/${dates[k].getDate()}</span></th>`).join('')}</tr></thead>
+        `<th>${k===0?'오늘':(k===1?'내일':'D+'+k)}<span class="d">${dates[k].getDate()}일</span></th>`).join('')}</tr></thead>
       <tbody>${rows.map(row=>`<tr class="${row.kma?'kma-row':''}">
         <th class="mdl"><span class="mname">${row.name}</span><span class="mdesc">${row.desc}</span></th>
         ${row.days.map(cell).join('')}</tr>`).join('')}
-      <tr class="agree"><th class="mdl">비 예보 일치</th>${agree.map(a=>{
+      <tr class="agree"><th class="mdl">비 일치</th>${agree.map(a=>{
         if (!a.tot) return '<td><span class="dim">-</span></td>';
         const cls = a.yes===0 || a.yes===a.tot ? 'agree-hi' : (a.yes*2>=a.tot ? 'agree-mid' : 'agree-lo');
         return `<td><span class="${cls}">${a.yes}/${a.tot}</span></td>`;
