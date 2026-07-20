@@ -79,6 +79,14 @@
   #cmpBody tr.agree td,#cmpBody tr.agree th{border-top:2px solid #bbb;font-weight:700;}
   .agree-hi{color:#2e7d32;} .agree-mid{color:#ef6c00;} .agree-lo{color:#c62828;}
   .cmp-legend{font-size:11px;color:#888;margin-top:8px;line-height:1.6;}
+  .sortbar{display:flex;align-items:center;gap:6px;margin:6px 8px 8px;flex-wrap:wrap;}
+  .sortbar .sl{font-size:11.5px;color:#999;}
+  .sbtn{border:1px solid var(--line);background:#fff;color:#555;border-radius:14px;padding:6px 12px;font-size:12.5px;cursor:pointer;}
+  .sbtn.active{background:var(--blue);color:#fff;border-color:var(--blue);font-weight:700;}
+  .sortbar select{font-size:12px;padding:5px 7px;border:1px solid var(--line);border-radius:7px;}
+  .sortbar select:disabled{opacity:.45;}
+  .card h2 .rv{font-weight:400;font-size:12px;color:var(--min);margin-left:6px;}
+  .card.no-rain h2{color:#aaa;background:#f7f7f8;}
   .today-col{background:#eef4fd;}
   .foot{font-size:11px;color:#999;padding:4px 10px 14px;}
   .foot a{color:var(--blue);}
@@ -110,6 +118,16 @@
 </div>
 <div id="viewAll">
 <div id="brief" class="brief" style="display:none"></div>
+<div class="sortbar">
+  <span class="sl">정렬</span>
+  <button class="sbtn active" id="sortLoc" onclick="setSort('loc')">내 위치 순</button>
+  <button class="sbtn" id="sortRain" onclick="setSort('rain')">🌧️ 비 많은 순</button>
+  <select id="sortDay" onchange="applySort()" disabled>
+    <option value="0">오늘</option><option value="1">내일</option><option value="2">D+2</option>
+    <option value="3">D+3</option><option value="4">D+4</option><option value="5">D+5</option>
+    <option value="6">D+6</option><option value="99">7일 합계</option>
+  </select>
+</div>
 <main id="main"></main>
 </div>
 <div class="foot">자료: 기상청 단기예보·중기예보 (공공데이터포털) · <a href="index.html?pc">PC 버전</a></div>
@@ -380,6 +398,53 @@ async function renderBriefing(idx){
   loadTable(r); // 기준 지점에서 가까운 순으로 카드 정렬
 }
 
+// ── 강수량 정렬 ──
+let sortMode = 'loc';   // 'loc' = 내 위치 순, 'rain' = 비 많은 순
+let regionRain = {};    // 지역 인덱스 → 7일 {pcp,pop}
+let curList = [];       // 현재 화면에 그려진 지역 순서
+function setSort(mode){
+  sortMode = mode;
+  document.getElementById('sortLoc').classList.toggle('active', mode==='loc');
+  document.getElementById('sortRain').classList.toggle('active', mode==='rain');
+  document.getElementById('sortDay').disabled = (mode!=='rain');
+  applySort();
+}
+// 해당 기준일의 강수 값 — 강수량(mm) 우선, 없으면(D+4~6) 강수확률(%)
+function rainValue(cells, day){
+  if (!cells) return null;
+  if (day === 99){
+    let sum = 0, has = false;
+    for (const c of cells) if (c && c.pcp != null){ sum += c.pcp; has = true; }
+    return has ? {v: Math.round(sum*10)/10, unit:'mm'} : null;
+  }
+  const c = cells[day];
+  if (!c) return null;
+  if (c.pcp != null) return {v: c.pcp, unit:'mm'};
+  if (c.pop != null) return {v: c.pop, unit:'%'};
+  return null;
+}
+function applySort(){
+  const main = document.getElementById('main');
+  if (!main || !curList.length) return;
+  const day = +document.getElementById('sortDay').value;
+  const idx = curList.map((_,i)=>i);
+  if (sortMode === 'rain'){
+    idx.sort((a,b)=>{
+      const A = rainValue(regionRain[a], day), B = rainValue(regionRain[b], day);
+      return (B ? B.v : -1) - (A ? A.v : -1);
+    });
+  }
+  for (const i of idx){
+    const card = document.getElementById('card'+i);
+    if (card) main.appendChild(card);
+    const nameEl = document.getElementById('rn'+i);
+    if (!nameEl) continue;
+    const rv = (sortMode==='rain') ? rainValue(regionRain[i], day) : null;
+    nameEl.innerHTML = curList[i].name + (rv ? ` <span class="rv">${rv.v}${rv.unit}</span>` : '');
+    if (card) card.classList.toggle('no-rain', sortMode==='rain' && (!rv || rv.v<=0));
+  }
+}
+
 // 내 권역(도 단위)을 먼저, 나머지는 원래 순서 유지
 function orderedRegions(ref){
   if (!ref || ref.nx==null) return REGIONS.slice();
@@ -413,6 +478,7 @@ async function loadTable(ref){
   const key = list.map(r=>r.name).join('|');
   if (key === lastOrder) return; // 순서 변화 없으면 다시 그리지 않음
   lastOrder = key;
+  curList = list;
   const seq = ++tableSeq;
   const [vbL, vbD] = vilageBases(), [tmFc, tmFc2] = midTmFcs();
   const today = kstNow();
@@ -422,8 +488,9 @@ async function loadTable(ref){
 
   const labels = ['오늘','내일','D+2','D+3','D+4','D+5','D+6'];
   const main = document.getElementById('main');
+  regionRain = {};
   main.innerHTML = list.map((r,i)=>
-    `<div class="card"><h2>${r.name}</h2><div class="days" id="c${i}">불러오는 중...</div></div>`).join('');
+    `<div class="card" id="card${i}"><h2 id="rn${i}">${r.name}</h2><div class="days" id="c${i}">불러오는 중...</div></div>`).join('');
 
   let done = 0;
   await Promise.all(list.map(async (r,i)=>{
@@ -439,6 +506,7 @@ async function loadTable(ref){
       const merged = mergeVilage(vilD, vilL);
       if (!merged.length) throw new Error('단기예보 응답 없음');
       const days = summarizeVilage(merged);
+      const rainCells = [];
       box.innerHTML = labels.map((lb,k)=>{
         const d = addDays(today,k);
         const dateKey = ymd(d);
@@ -447,8 +515,11 @@ async function loadTable(ref){
           const s = days[dateKey];
           cell = {sev:s.sev, pop:s.pop, pcp:s.pcp, tmin:s.tmn, tmax:s.tmx, rt:s.rt, hv:s.hv, hq:s.hq};
         } else { cell = mergeMid(midDay(land, ta, k+diff), midDay(land2, ta2, k+diff2)); isMid = true; }
+        rainCells.push(cell ? {pcp: isMid ? null : cell.pcp, pop: cell.pop} : null);
         return dayHTML(lb, `${d.getMonth()+1}/${d.getDate()}(${WD[d.getDay()]})`, cell, isMid, k===0, r.name);
       }).join('');
+      regionRain[i] = rainCells;
+      if (sortMode === 'rain') applySort();
     }catch(e){
       if (seq !== tableSeq) return;
       box.innerHTML = `<div class="err">데이터를 불러오지 못했습니다 (${e.message})</div>`;

@@ -83,6 +83,14 @@ if (matchMedia('(max-width: 767px)').matches && !location.search.includes('pc'))
   .agree-mid{color:#ef6c00;}
   .agree-lo{color:#c62828;}
   .cmp-legend{font-size:12px;color:#777;margin-top:10px;line-height:1.6;}
+  .sortbar{display:flex;align-items:center;gap:8px;margin:0 0 10px;flex-wrap:wrap;}
+  .sortbar .sl{font-size:12px;color:#888;}
+  .sbtn{border:1px solid var(--line);background:#fff;color:#555;border-radius:14px;padding:5px 13px;font-size:12.5px;cursor:pointer;}
+  .sbtn.active{background:var(--blue);color:#fff;border-color:var(--blue);font-weight:600;}
+  .sortbar select{font-size:12px;padding:4px 7px;border:1px solid var(--line);border-radius:6px;}
+  .sortbar select:disabled{opacity:.45;}
+  td.region .rv{font-weight:400;font-size:11.5px;color:var(--min);margin-left:6px;}
+  tr.no-rain td.region{color:#aaa;}
   .foot{margin-top:12px;font-size:12px;color:#999;}
   .foot a{color:var(--blue);}
 </style>
@@ -117,6 +125,16 @@ if (matchMedia('(max-width: 767px)').matches && !location.search.includes('pc'))
 </div>
 <div id="viewAll">
 <div id="brief" class="brief" style="display:none"></div>
+<div class="sortbar">
+  <span class="sl">정렬</span>
+  <button class="sbtn active" id="sortLoc" onclick="setSort('loc')">내 위치 순</button>
+  <button class="sbtn" id="sortRain" onclick="setSort('rain')">🌧️ 비 많은 순</button>
+  <select id="sortDay" onchange="applySort()" disabled>
+    <option value="0">오늘</option><option value="1">내일</option><option value="2">D+2</option>
+    <option value="3">D+3</option><option value="4">D+4</option><option value="5">D+5</option>
+    <option value="6">D+6</option><option value="99">7일 합계</option>
+  </select>
+</div>
 <div style="overflow-x:auto;">
 <table id="tbl">
   <thead><tr id="headRow"></tr></thead>
@@ -401,6 +419,55 @@ function buildHead(){
   document.getElementById('headRow').innerHTML = h;
 }
 
+// ── 강수량 정렬 ──
+let sortMode = 'loc';   // 'loc' = 내 위치 순, 'rain' = 비 많은 순
+let regionRain = {};    // 지역 인덱스 → 7일 {pcp,pop}
+let curList = [];       // 현재 표에 그려진 지역 순서
+function setSort(mode){
+  sortMode = mode;
+  document.getElementById('sortLoc').classList.toggle('active', mode==='loc');
+  document.getElementById('sortRain').classList.toggle('active', mode==='rain');
+  document.getElementById('sortDay').disabled = (mode!=='rain');
+  applySort();
+}
+// 해당 기준일의 강수 값 — 강수량(mm) 우선, 없으면(D+4~6) 강수확률(%)
+function rainValue(cells, day){
+  if (!cells) return null;
+  if (day === 99){
+    let sum = 0, has = false;
+    for (const c of cells) if (c && c.pcp != null){ sum += c.pcp; has = true; }
+    return has ? {v: Math.round(sum*10)/10, unit:'mm'} : null;
+  }
+  const c = cells[day];
+  if (!c) return null;
+  if (c.pcp != null) return {v: c.pcp, unit:'mm'};
+  if (c.pop != null) return {v: c.pop, unit:'%'};
+  return null;
+}
+function applySort(){
+  const tbody = document.getElementById('body');
+  if (!tbody || !curList.length) return;
+  const day = +document.getElementById('sortDay').value;
+  const idx = curList.map((_,i)=>i);
+  if (sortMode === 'rain'){
+    idx.sort((a,b)=>{
+      const A = rainValue(regionRain[a], day), B = rainValue(regionRain[b], day);
+      return (B ? B.v : -1) - (A ? A.v : -1);
+    });
+  }
+  idx.forEach((i,pos)=>{
+    document.querySelectorAll(`#body tr[data-rg="${i}"]`).forEach(tr=>{
+      tbody.appendChild(tr);
+      tr.classList.toggle('shade', pos%2===1);
+    });
+    const nameEl = document.getElementById('rn'+i);
+    if (!nameEl) return;
+    const rv = (sortMode==='rain') ? rainValue(regionRain[i], day) : null;
+    nameEl.innerHTML = curList[i].name + (rv ? ` <span class="rv">${rv.v}${rv.unit}</span>` : '');
+    nameEl.parentElement.classList.toggle('no-rain', sortMode==='rain' && (!rv || rv.v<=0));
+  });
+}
+
 // 내 권역(도 단위)을 먼저, 나머지는 원래 순서 유지
 // 예: 서울 강북 → 서울 북부, 서울 남부, (원래 순서) / 부산 → 경상 남부, 경상 북부, 서울..., 경기...
 function orderedRegions(ref){
@@ -436,6 +503,7 @@ async function loadTable(ref){
   const key = list.map(r=>r.name).join('|');
   if (key === lastOrder) return; // 순서 변화 없으면 다시 그리지 않음
   lastOrder = key;
+  curList = list;
   const seq = ++tableSeq;
   const [vbL, vbD] = vilageBases(), [tmFc, tmFc2] = midTmFcs();
   const today = kstNow();
@@ -444,13 +512,14 @@ async function loadTable(ref){
   const diff = dayDiff(tmFc), diff2 = dayDiff(tmFc2);
 
   const body = document.getElementById('body');
+  regionRain = {};
   body.innerHTML = list.map((r,i)=>{
     const sh = i%2 ? ' shade' : '';
-    return `<tr class="region-row${sh}"><td class="region">${r.name}</td>${'<td></td>'.repeat(7)}</tr>
-      <tr class="${sh.trim()}"><td class="label">날씨</td>${Array.from({length:7},(_,k)=>`<td class="wx" id="w${i}_${k}">⋯</td>`).join('')}</tr>
-      <tr class="${sh.trim()}"><td class="label">기온</td>${Array.from({length:7},(_,k)=>`<td id="t${i}_${k}"></td>`).join('')}</tr>
-      <tr class="${sh.trim()}"><td class="label">강수량</td>${Array.from({length:7},(_,k)=>`<td id="r${i}_${k}"></td>`).join('')}</tr>
-      <tr class="${sh.trim()}"><td class="label">시간별 강수</td>${Array.from({length:7},(_,k)=>`<td class="sp" id="g${i}_${k}"></td>`).join('')}</tr>`;
+    return `<tr class="region-row${sh}" data-rg="${i}"><td class="region" id="rn${i}">${r.name}</td>${'<td></td>'.repeat(7)}</tr>
+      <tr class="${sh.trim()}" data-rg="${i}"><td class="label">날씨</td>${Array.from({length:7},(_,k)=>`<td class="wx" id="w${i}_${k}">⋯</td>`).join('')}</tr>
+      <tr class="${sh.trim()}" data-rg="${i}"><td class="label">기온</td>${Array.from({length:7},(_,k)=>`<td id="t${i}_${k}"></td>`).join('')}</tr>
+      <tr class="${sh.trim()}" data-rg="${i}"><td class="label">강수량</td>${Array.from({length:7},(_,k)=>`<td id="r${i}_${k}"></td>`).join('')}</tr>
+      <tr class="${sh.trim()}" data-rg="${i}"><td class="label">시간별 강수</td>${Array.from({length:7},(_,k)=>`<td class="sp" id="g${i}_${k}"></td>`).join('')}</tr>`;
   }).join('');
 
   let done = 0;
@@ -466,6 +535,7 @@ async function loadTable(ref){
       const merged = mergeVilage(vilD, vilL);
       if (!merged.length) throw new Error('단기예보 응답 없음');
       const days = summarizeVilage(merged);
+      const rainCells = [];
       for (let k=0;k<7;k++){
         const dateKey = ymd(addDays(today,k));
         let cell = null, isMid = false;
@@ -490,7 +560,10 @@ async function loadTable(ref){
         } else {
           gEl.innerHTML = (!isMid && cell) ? '<span class="dim">·</span>' : '<span class="dim">-</span>';
         }
+        rainCells.push(cell ? {pcp: isMid ? null : cell.pcp, pop: cell.pop} : null);
       }
+      regionRain[i] = rainCells;
+      if (sortMode === 'rain') applySort();
     }catch(e){
       if (seq !== tableSeq) return;
       for (let k=0;k<7;k++) document.getElementById(`w${i}_${k}`).innerHTML = `<span class="err">오류</span>`;
