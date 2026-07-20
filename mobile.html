@@ -64,6 +64,15 @@
   .cmp-bar{display:flex;align-items:center;gap:8px;margin:8px;font-size:13px;color:#555;}
   .cmp-bar select{flex:1;font-size:13px;padding:6px 8px;border:1px solid var(--line);border-radius:8px;}
   .cmp-bar input{flex:1;font-size:13px;padding:8px 10px;border:1px solid var(--line);border-radius:8px;}
+  .skill{margin-top:14px;padding-top:12px;border-top:1px solid var(--line);}
+  .sk-h{font-size:13px;font-weight:700;color:var(--blue);margin-bottom:7px;}
+  .sk-sub{display:block;font-weight:400;font-size:11px;color:#999;margin-top:2px;}
+  .sk-t{width:100%;border-collapse:collapse;min-width:0;}
+  .sk-t th,.sk-t td{border:1px solid var(--line);padding:6px 4px;font-size:12px;text-align:center;}
+  .sk-t th{background:#f7f9fc;color:#555;}
+  .sk-t td.skm{text-align:left;padding-left:8px;font-weight:700;color:var(--blue);}
+  .sk-best{background:#eaf6ec;color:#2e7d32;font-weight:700;}
+  .sk-note{font-size:11px;color:#999;margin-top:7px;line-height:1.6;}
   #cmpBody{padding:0 8px 16px;}
   #cmpBody .scroll{overflow-x:auto;background:#fff;border:1px solid var(--line);border-radius:8px;}
   #cmpBody table{border-collapse:collapse;min-width:600px;width:100%;}
@@ -752,10 +761,58 @@ async function renderCompare(idx){
     </table></div>
     <div class="cmp-legend">· <b>비 예보 일치</b> = 네 모델 중 그날 비/눈을 예상한 개수. <span class="agree-hi">0/4·4/4</span>는 신뢰도 높음, <span class="agree-lo">1/4·2/4</span>는 변동 가능성 큼.<br>
     · 기상청은 D+4~6이 강수확률(%), 해외 모델은 7일 모두 강수량(mm).<br>
-    · 자료: 기상청 · ECMWF/UKMO/JMA(Open-Meteo)</div>`;
+    · 자료: 기상청 · ECMWF/UKMO/JMA(Open-Meteo)</div>
+    <div id="skillBox" class="skill"></div>`;
+    renderSkill(lat, lon, r.name);
   }catch(e){
     box.innerHTML = `<div class="err-inline">데이터를 불러오지 못했습니다 (${e.message})</div>`;
   }
+}
+
+// 최근 2주간 각 모델이 실제로 얼마나 맞았는지 검증 (과거 예보 vs 실측)
+async function renderSkill(lat, lon, placeName){
+  const box = document.getElementById('skillBox');
+  if (!box) return;
+  box.innerHTML = '<div class="err-inline" style="color:#999">최근 2주 성적 계산 중...</div>';
+  try{
+    const n = kstNow();
+    const end = addDays(n,-1), start = addDays(n,-14);
+    const f = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    const S = f(start), E = f(end);
+    const ids = MODELS.map(m=>m.id).join(',');
+    const ll = `latitude=${lat.toFixed(4)}&longitude=${lon.toFixed(4)}`;
+    const [obs, fc] = await Promise.all([
+      fetch(`https://archive-api.open-meteo.com/v1/archive?${ll}&start_date=${S}&end_date=${E}&daily=temperature_2m_max,precipitation_sum&timezone=Asia%2FSeoul`).then(r=>r.json()),
+      fetch(`https://historical-forecast-api.open-meteo.com/v1/forecast?${ll}&start_date=${S}&end_date=${E}&daily=temperature_2m_max,precipitation_sum&models=${ids}&timezone=Asia%2FSeoul`).then(r=>r.json())
+    ]);
+    if (!obs.daily || !fc.daily){ box.innerHTML = ''; return; }
+    const oT = obs.daily.temperature_2m_max, oP = obs.daily.precipitation_sum;
+    const rows = MODELS.map(m=>{
+      const fT = fc.daily['temperature_2m_max_'+m.id], fP = fc.daily['precipitation_sum_'+m.id];
+      let te=0, tn=0, hit=0, hn=0;
+      for (let i=0;i<oT.length;i++){
+        if (fT && fT[i]!=null && oT[i]!=null){ te += Math.abs(fT[i]-oT[i]); tn++; }
+        if (fP && fP[i]!=null && oP[i]!=null){ const a = oP[i]>=1, b = fP[i]>=1; if (a===b) hit++; hn++; }
+      }
+      return {name:m.name, terr: tn?te/tn:null, hitr: hn?hit/hn*100:null};
+    });
+    const valid = rows.filter(r=>r.terr!=null);
+    if (!valid.length){ box.innerHTML = ''; return; }
+    const bestT = Math.min(...valid.map(r=>r.terr));
+    const bestH = Math.max(...valid.filter(r=>r.hitr!=null).map(r=>r.hitr));
+    const md = s => `${+s.slice(5,7)}/${+s.slice(8,10)}`;
+    box.innerHTML = `<div class="sk-h">최근 2주 적중률<span class="sk-sub">${placeName} · ${md(S)}~${md(E)}</span></div>
+      <table class="sk-t">
+        <tr><th>모델</th><th>기온 오차</th><th>비 적중률</th></tr>
+        ${rows.map(r=>`<tr>
+          <td class="skm">${r.name}</td>
+          <td class="${r.terr===bestT?'sk-best':''}">${r.terr!=null?'±'+r.terr.toFixed(1)+'°':'-'}</td>
+          <td class="${r.hitr===bestH?'sk-best':''}">${r.hitr!=null?Math.round(r.hitr)+'%':'-'}</td></tr>`).join('')}
+      </table>
+      <div class="sk-note">· 하루 전 예보와 실제 관측을 비교한 값. 오차가 작고 적중률이 높을수록 잘 맞춘 것입니다.<br>
+      · 기상청은 과거 예보가 공개되지 않아 제외됩니다.<br>
+      · 2주 표본이라 참고용 — 계절·지역에 따라 순위가 바뀝니다.</div>`;
+  }catch(e){ box.innerHTML = ''; }
 }
 // 한 지역(임의 격자점)의 7일 데이터
 async function regionCells(r){
