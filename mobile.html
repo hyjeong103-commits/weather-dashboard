@@ -63,6 +63,7 @@
   .rm-head button{border:none;background:none;font-size:17px;color:#999;cursor:pointer;}
   .cmp-bar{display:flex;align-items:center;gap:8px;margin:8px;font-size:13px;color:#555;}
   .cmp-bar select{flex:1;font-size:13px;padding:6px 8px;border:1px solid var(--line);border-radius:8px;}
+  .cmp-bar input{flex:1;font-size:13px;padding:8px 10px;border:1px solid var(--line);border-radius:8px;}
   #cmpBody{padding:0 8px 16px;}
   #cmpBody .scroll{overflow-x:auto;background:#fff;border:1px solid var(--line);border-radius:8px;}
   #cmpBody table{border-collapse:collapse;min-width:600px;width:100%;}
@@ -105,7 +106,9 @@
   <button class="tab" id="tabCompare" onclick="showTab('compare')">모델 비교</button>
 </div>
 <div id="viewCompare" style="display:none">
-  <div class="cmp-bar">기준 지역 <select id="cmpSel" onchange="renderCompare(+this.value)"></select></div>
+  <div class="cmp-bar">기준 지역 <select id="cmpSel" onchange="cmpPlace=null; renderCompare(+this.value)"></select></div>
+  <div class="cmp-bar"><input id="cmpQ" placeholder="또는 동네 검색 (예: 자양동)" oninput="onCmpInput()" onkeydown="if(event.key==='Enter')cmpSearch()" autocomplete="off"></div>
+  <div id="cmpCand"></div>
   <div id="cmpBody"></div>
 </div>
 <div id="viewSearch" style="display:none">
@@ -611,10 +614,11 @@ function gridToLatLon(nx, ny){
   else theta = Math.atan2(xn, yn);
   return { lat: alat*RADDEG, lon: (theta/sn + olon)*RADDEG };
 }
+// 세계 검증 순위 상위(ECMWF 1위·UKMO 2위) + 동아시아 특화(JMA)
 const MODELS = [
-  {id:'ecmwf_ifs025', name:'ECMWF', desc:'유럽중기예보센터'},
-  {id:'gfs_seamless', name:'GFS',   desc:'미국 NOAA'},
-  {id:'icon_seamless',name:'ICON',  desc:'독일 DWD'},
+  {id:'ecmwf_ifs025',  name:'ECMWF', desc:'유럽 · 1위'},
+  {id:'ukmo_seamless', name:'UKMO',  desc:'영국 · 2위'},
+  {id:'jma_seamless',  name:'JMA',   desc:'일본 · 동아시아'},
 ];
 function wmoSev(c){
   if (c==null) return null;
@@ -638,11 +642,46 @@ function initCompare(){
   sel.value = (myLoc && briefIdx===-1) ? '-1' : String(briefIdx >= 0 ? briefIdx : 0);
   renderCompare(+sel.value);
 }
+// 비교 탭 지역 검색
+let cmpPlace = null, cmpTimer = null, cmpSeq = 0;
+function onCmpInput(){
+  clearTimeout(cmpTimer);
+  const q = document.getElementById('cmpQ').value.trim();
+  if (q.length < 2){ document.getElementById('cmpCand').innerHTML = ''; return; }
+  cmpTimer = setTimeout(cmpSearch, 400);
+}
+async function cmpSearch(){
+  const q = document.getElementById('cmpQ').value.trim();
+  const cand = document.getElementById('cmpCand');
+  if (!q){ cand.innerHTML=''; return; }
+  const my = ++cmpSeq;
+  try{
+    const j = await fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&q=${encodeURIComponent(q)}&accept-language=ko&countrycodes=kr&limit=5`).then(r=>r.json());
+    if (my !== cmpSeq) return;
+    if (!j.length){ cand.innerHTML = '<div class="err-inline" style="color:#777">검색 결과가 없습니다</div>'; return; }
+    cand.innerHTML = j.map(p=>{
+      const short = p.display_name.split(',').slice(0,2).map(s=>s.trim()).reverse().join(' ').replace(/'/g,'');
+      return `<button class="cand-btn" onclick="cmpPick(${p.lat},${p.lon},'${short}')">${p.display_name.split(',').slice(0,4).join(', ')}</button>`;
+    }).join('');
+  }catch(e){ if (my===cmpSeq) cand.innerHTML = '<div class="err-inline">검색 실패</div>'; }
+}
+function cmpPick(lat, lon, name){
+  cmpPlace = {lat:+lat, lon:+lon, name};
+  document.getElementById('cmpCand').innerHTML = '';
+  document.getElementById('cmpQ').value = name;
+  document.getElementById('cmpSel').selectedIndex = -1;
+  renderCompare(-2);
+}
 async function renderCompare(idx){
   const box = document.getElementById('cmpBody');
   box.innerHTML = '<div class="err-inline" style="color:#777">불러오는 중...</div>';
   let r, lat, lon;
-  if (idx === -1 && myLoc){
+  if (idx === -2 && cmpPlace){
+    const g = latLonToGrid(cmpPlace.lat, cmpPlace.lon);
+    const near = orderedRegions(g)[0];
+    r = {name: cmpPlace.name, land: near.land, ta: near.ta, nx: g.nx, ny: g.ny};
+    lat = cmpPlace.lat; lon = cmpPlace.lon;
+  } else if (idx === -1 && myLoc){
     const near = orderedRegions(myLoc)[0];
     r = {name: myLoc.label, land: near.land, ta: near.ta, nx: myLoc.nx, ny: myLoc.ny};
     lat = myLoc.lat; lon = myLoc.lon;
@@ -713,7 +752,7 @@ async function renderCompare(idx){
     </table></div>
     <div class="cmp-legend">· <b>비 예보 일치</b> = 네 모델 중 그날 비/눈을 예상한 개수. <span class="agree-hi">0/4·4/4</span>는 신뢰도 높음, <span class="agree-lo">1/4·2/4</span>는 변동 가능성 큼.<br>
     · 기상청은 D+4~6이 강수확률(%), 해외 모델은 7일 모두 강수량(mm).<br>
-    · 자료: 기상청 · ECMWF/GFS/ICON(Open-Meteo)</div>`;
+    · 자료: 기상청 · ECMWF/UKMO/JMA(Open-Meteo)</div>`;
   }catch(e){
     box.innerHTML = `<div class="err-inline">데이터를 불러오지 못했습니다 (${e.message})</div>`;
   }

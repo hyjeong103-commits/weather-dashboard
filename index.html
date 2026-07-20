@@ -69,6 +69,8 @@ if (matchMedia('(max-width: 767px)').matches && !location.search.includes('pc'))
   .cmp-bar{display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap;font-size:13px;color:#555;}
   .cmp-bar select{font-size:13px;padding:5px 8px;border:1px solid var(--line);border-radius:6px;}
   .cmp-note{font-size:12px;color:#999;}
+  .cmp-bar input{flex:1;min-width:200px;max-width:320px;padding:6px 10px;border:1px solid var(--line);border-radius:6px;font-size:12.5px;}
+  #cmpCand{margin-bottom:10px;}
   #cmpBody table{min-width:820px;}
   #cmpBody th.mdl{width:150px;text-align:left;padding-left:10px;}
   #cmpBody td.cell{line-height:1.45;padding:6px 2px;}
@@ -110,9 +112,10 @@ if (matchMedia('(max-width: 767px)').matches && !location.search.includes('pc'))
 <div id="viewCompare" style="display:none">
   <div class="cmp-bar">
     기준 지역
-    <select id="cmpSel" onchange="renderCompare(+this.value)"></select>
-    <span class="cmp-note">기상청 + 해외 3개 예보모델을 나란히 비교합니다</span>
+    <select id="cmpSel" onchange="cmpPlace=null; renderCompare(+this.value)"></select>
+    <input id="cmpQ" placeholder="또는 동네 검색 (예: 자양동, 구리시)" oninput="onCmpInput()" onkeydown="if(event.key==='Enter')cmpSearch()" autocomplete="off">
   </div>
+  <div id="cmpCand"></div>
   <div id="cmpBody"></div>
 </div>
 <div id="viewSearch" style="display:none">
@@ -660,10 +663,11 @@ function gridToLatLon(nx, ny){
   else theta = Math.atan2(xn, yn);
   return { lat: alat*RADDEG, lon: (theta/sn + olon)*RADDEG };
 }
+// 세계 검증 순위 상위(ECMWF 1위·UKMO 2위) + 동아시아 특화(JMA)
 const MODELS = [
-  {id:'ecmwf_ifs025', name:'ECMWF', desc:'유럽중기예보센터'},
-  {id:'gfs_seamless', name:'GFS',   desc:'미국 NOAA'},
-  {id:'icon_seamless',name:'ICON',  desc:'독일 DWD'},
+  {id:'ecmwf_ifs025',  name:'ECMWF', desc:'유럽중기예보센터 · 정확도 1위'},
+  {id:'ukmo_seamless', name:'UKMO',  desc:'영국 기상청 · 정확도 2위'},
+  {id:'jma_seamless',  name:'JMA',   desc:'일본 기상청 · 동아시아·태풍'},
 ];
 // WMO 날씨 코드 → 심각도(0맑음 1구름 2눈 3비)
 function wmoSev(c){
@@ -688,12 +692,47 @@ function initCompare(){
   sel.value = (myLoc && briefIdx===-1) ? '-1' : String(briefIdx >= 0 ? briefIdx : 0);
   renderCompare(+sel.value);
 }
+// 비교 탭 지역 검색
+let cmpPlace = null, cmpTimer = null, cmpSeq = 0;
+function onCmpInput(){
+  clearTimeout(cmpTimer);
+  const q = document.getElementById('cmpQ').value.trim();
+  if (q.length < 2){ document.getElementById('cmpCand').innerHTML = ''; return; }
+  cmpTimer = setTimeout(cmpSearch, 400);
+}
+async function cmpSearch(){
+  const q = document.getElementById('cmpQ').value.trim();
+  const cand = document.getElementById('cmpCand');
+  if (!q){ cand.innerHTML=''; return; }
+  const my = ++cmpSeq;
+  try{
+    const j = await fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&q=${encodeURIComponent(q)}&accept-language=ko&countrycodes=kr&limit=5`).then(r=>r.json());
+    if (my !== cmpSeq) return;
+    if (!j.length){ cand.innerHTML = '<span class="dim">검색 결과가 없습니다</span>'; return; }
+    cand.innerHTML = j.map(p=>{
+      const short = p.display_name.split(',').slice(0,2).map(s=>s.trim()).reverse().join(' ').replace(/'/g,'');
+      return `<button class="cand-btn" onclick="cmpPick(${p.lat},${p.lon},'${short}')">${p.display_name.split(',').slice(0,4).join(', ')}</button>`;
+    }).join('');
+  }catch(e){ if (my===cmpSeq) cand.innerHTML = '<span class="err">검색 실패</span>'; }
+}
+function cmpPick(lat, lon, name){
+  cmpPlace = {lat:+lat, lon:+lon, name};
+  document.getElementById('cmpCand').innerHTML = '';
+  document.getElementById('cmpQ').value = name;
+  document.getElementById('cmpSel').selectedIndex = -1;
+  renderCompare(-2);
+}
 async function renderCompare(idx){
   const box = document.getElementById('cmpBody');
   box.innerHTML = '<span class="dim">불러오는 중...</span>';
   // 기준 지점 결정
   let r, lat, lon;
-  if (idx === -1 && myLoc){
+  if (idx === -2 && cmpPlace){
+    const g = latLonToGrid(cmpPlace.lat, cmpPlace.lon);
+    const near = orderedRegions(g)[0];
+    r = {name: cmpPlace.name, land: near.land, ta: near.ta, nx: g.nx, ny: g.ny};
+    lat = cmpPlace.lat; lon = cmpPlace.lon;
+  } else if (idx === -1 && myLoc){
     const near = orderedRegions(myLoc)[0];
     r = {name: myLoc.label, land: near.land, ta: near.ta, nx: myLoc.nx, ny: myLoc.ny};
     lat = myLoc.lat; lon = myLoc.lon;
@@ -767,7 +806,7 @@ async function renderCompare(idx){
     </table></div>
     <div class="cmp-legend">· <b>비 예보 일치</b>는 네 모델 중 몇 개가 그날 비/눈을 예상했는지입니다. <span class="agree-hi">0/4·4/4</span>는 예보가 일치해 신뢰도가 높고, <span class="agree-lo">1/4·2/4</span>는 모델 간 의견이 갈려 변동 가능성이 큽니다.<br>
     · 기상청은 오늘~D+3 강수량(mm), D+4~D+6은 강수확률(%)을 표시합니다. 해외 모델은 7일 모두 강수량(mm) 기준입니다.<br>
-    · 자료: 기상청(공공데이터포털) · ECMWF/GFS/ICON(Open-Meteo)</div>`;
+    · 자료: 기상청(공공데이터포털) · ECMWF/UKMO/JMA(Open-Meteo)</div>`;
   }catch(e){
     box.innerHTML = `<span class="err">데이터를 불러오지 못했습니다 (${e.message})</span>`;
   }
