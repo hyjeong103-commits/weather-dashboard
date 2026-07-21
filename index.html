@@ -111,7 +111,7 @@ if (matchMedia('(max-width: 767px)').matches && !location.search.includes('pc'))
   .cv-head{display:flex;align-items:center;justify-content:space-between;font-weight:700;color:var(--blue);font-size:14px;margin-bottom:9px;}
   .cv-head button{border:none;background:none;font-size:17px;color:#999;cursor:pointer;}
   .cv-video{position:relative;width:100%;padding-top:56.25%;background:#000;border-radius:8px;overflow:hidden;}
-  .cv-video iframe{position:absolute;inset:0;width:100%;height:100%;border:0;}
+  .cv-video iframe,.cv-video img{position:absolute;inset:0;width:100%;height:100%;border:0;object-fit:cover;}
   .cv-list{margin-top:9px;display:flex;flex-direction:column;gap:4px;max-height:170px;overflow-y:auto;}
   .cv-item{text-align:left;border:1px solid var(--line);background:#fff;border-radius:7px;padding:7px 10px;font-size:12.5px;cursor:pointer;}
   .cv-item:hover{border-color:var(--blue);}
@@ -615,33 +615,73 @@ const LIVECAMS = [
   {name:'부산 광안대교',    id:'jmVmZlsQIL8', lat:35.1467, lon:129.1250, tag:'해변'},
   {name:'부산 송정해수욕장',id:'tQ9tse8cTy4', lat:35.1786, lon:129.1997, tag:'해변'},
 ];
-// 그 지역을 실제로 비추는 라이브캠(20km 이내)이 있을 때만 버튼을 보여준다
+// ② 전국 웹캠 스냅샷 (Windy, 수분마다 갱신되는 고화질 사진)
+const WEBCAMS = [
+  {id:1647579305,n:'성수1가1동',y:37.5424,x:127.0294},{id:1701618298,n:'서교동 동교동삼거리',y:37.5589,x:126.9265},
+  {id:1689176350,n:'여의동 북쪽',y:37.5289,x:126.9293},{id:1625008803,n:'인천 신흥동',y:37.4581,x:126.6306},
+  {id:1626569004,n:'인천 송도5동',y:37.4264,x:126.6079},{id:1685571630,n:'광명 소하1동',y:37.452,x:126.893},
+  {id:1793887618,n:'김포시 남쪽',y:37.6322,x:126.7068},{id:1793887613,n:'김포시 북서쪽',y:37.6301,x:126.7111},
+  {id:1793882195,n:'수원시',y:37.2805,x:127.0057},{id:1762201460,n:'수원시 북동',y:37.3044,x:127.0564},
+  {id:1646774594,n:'용인 성복동',y:37.3168,x:127.0689},{id:1762198632,n:'춘천 신북면',y:37.9656,x:127.1653},
+  {id:1762828839,n:'평창 봉평면',y:37.5811,x:128.3237},{id:1793867848,n:'평창 두원리',y:37.4893,x:128.2472},
+  {id:1793876419,n:'대관령면',y:37.6435,x:128.6806},{id:1637200256,n:'대관령 골드슬로프',y:37.6238,x:128.6866},
+  {id:1639712753,n:'대구 남산동',y:35.866,x:128.5873},{id:1743990618,n:'대구 산격동',y:35.8897,x:128.6043},
+  {id:1660089592,n:'경산 압량읍',y:35.8413,x:128.7607},{id:1743989901,n:'부산 우동',y:35.1707,x:129.1263},
+  {id:1743990284,n:'부산 우동 서쪽',y:35.1691,x:129.1322},{id:1743989995,n:'부산 민락동',y:35.1622,x:129.133},
+  {id:1615788210,n:'군산 옥서면',y:35.9481,x:126.5876},{id:1615788445,n:'새만금비응공원',y:35.9429,x:126.5369},
+  {id:1671678564,n:'무주 안성면',y:35.8909,x:127.737},{id:1793882187,n:'무주 덕유산리조트',y:35.8889,x:127.7455},
+  {id:1515064858,n:'무주 삼공리',y:35.8649,x:127.744},{id:1762136190,n:'충주 대소원면',y:36.9733,x:127.8262},
+  {id:1793887603,n:'충주시 서쪽',y:36.9724,x:127.9333},{id:1762137419,n:'충주시',y:36.9873,x:127.9393},
+  {id:1746507597,n:'제주시 북서쪽',y:33.5059,x:126.4638},{id:1744176718,n:'제주시',y:33.3953,x:126.4894},
+  {id:1618900231,n:'서귀포시',y:33.3631,x:126.5325},{id:1744176820,n:'서귀포시 서쪽',y:33.2974,x:126.4595},
+  {id:1736381896,n:'서귀포시 중부',y:33.3483,x:126.4966},{id:1608954944,n:'우이동 족두리바위',y:37.658,x:126.9917},
+  {id:1762197797,n:'의정부시',y:37.7225,x:127.0106},{id:1608954118,n:'속초 대포동',y:38.1637,x:128.485},
+];
+// 두 소스를 합쳐 가까운 순으로. 25km 이내에 하나라도 있으면 버튼 표시
 function camsNear(nx, ny){
   const p = gridToLatLon(nx, ny);
-  return LIVECAMS.map(c=>({...c, km: Math.sqrt(((c.lon-p.lon)*88)**2 + ((c.lat-p.lat)*111)**2)}))
-                 .filter(c=>c.km <= 20).sort((a,b)=>a.km-b.km);
+  const d = (la,lo) => Math.sqrt(((lo-p.lon)*88)**2 + ((la-p.lat)*111)**2);
+  const a = LIVECAMS.map(c=>({kind:'yt', id:c.id, name:c.name, tag:c.tag, km:d(c.lat,c.lon)}));
+  const b = WEBCAMS.map(c=>({kind:'img', id:c.id, name:c.n, tag:'사진', km:d(c.y,c.x)}));
+  return [...a,...b].filter(c=>c.km <= 25).sort((x,y)=>x.km-y.km).slice(0,10);
 }
 function hasCam(nx, ny){ return camsNear(nx, ny).length > 0; }
+let camTimer = null;
 function closeCctv(){
   document.getElementById('cctvModal').style.display = 'none';
   document.getElementById('cvFrame').src = 'about:blank';
+  document.getElementById('cvFrame').style.display = 'none';
+  document.getElementById('cvImg').style.display = 'none';
+  if (camTimer){ clearInterval(camTimer); camTimer = null; }
 }
-function playCam(id, name, btn){
+function playCam(kind, id, name, btn){
   document.getElementById('cvTitle').textContent = name;
   document.querySelectorAll('#cvList .cv-item').forEach(b=>b.classList.remove('on'));
   if (btn) btn.classList.add('on');
-  document.getElementById('cvFrame').src =
-    `https://www.youtube.com/embed/${id}?autoplay=1&mute=1&playsinline=1`;
+  const fr = document.getElementById('cvFrame'), im = document.getElementById('cvImg');
+  if (camTimer){ clearInterval(camTimer); camTimer = null; }
+  if (kind === 'yt'){
+    im.style.display = 'none';
+    fr.style.display = 'block';
+    fr.src = `https://www.youtube.com/embed/${id}?autoplay=1&mute=1&playsinline=1`;
+    document.getElementById('cvMsg').textContent = '· 24시간 실시간 방송입니다.';
+  } else {
+    fr.src = 'about:blank'; fr.style.display = 'none';
+    im.style.display = 'block';
+    const load = ()=>{ im.src = `https://imgproxy.windy.com/_/full/plain/current/${id}/original.jpg?t=${Date.now()}`; };
+    load();
+    camTimer = setInterval(load, 60000);  // 1분마다 최신 사진
+    document.getElementById('cvMsg').textContent = '· 웹캠 사진입니다. 1분마다 자동으로 새 사진을 불러옵니다.';
+  }
 }
 function openCctv(nx, ny, name){
   const near = camsNear(nx, ny);
   if (!near.length) return;
   document.getElementById('cctvModal').style.display = 'flex';
   document.getElementById('cvList').innerHTML = near.map((c,i)=>
-    `<button class="cv-item${i===0?' on':''}" onclick="playCam('${c.id}','${c.name}',this)">${c.name}
-      <span style="color:#999">· ${c.km.toFixed(1)}km · ${c.tag}</span></button>`).join('');
-  document.getElementById('cvMsg').textContent = '· 24시간 실시간 방송입니다. 목록에서 다른 장소를 고를 수 있습니다.';
-  playCam(near[0].id, near[0].name, document.querySelector('#cvList .cv-item'));
+    `<button class="cv-item${i===0?' on':''}" onclick="playCam('${c.kind}','${c.id}','${c.name}',this)">
+      ${c.kind==='yt'?'▶ ':'📷 '}${c.name} <span style="color:#999">· ${c.km.toFixed(1)}km · ${c.tag}</span></button>`).join('');
+  playCam(near[0].kind, near[0].id, near[0].name, document.querySelector('#cvList .cv-item'));
 }
 
 // ── 강수 상세 차트 팝업 ──
@@ -1040,7 +1080,10 @@ loadAll();
 <div id="cctvModal" onclick="closeCctv()">
   <div class="cv-box" onclick="event.stopPropagation()">
     <div class="cv-head"><span id="cvTitle">실시간 거리</span><button onclick="closeCctv()">✕</button></div>
-    <div class="cv-video"><iframe id="cvFrame" src="about:blank" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe></div>
+    <div class="cv-video">
+      <iframe id="cvFrame" src="about:blank" style="display:none" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>
+      <img id="cvImg" alt="웹캠 사진" style="display:none">
+    </div>
     <div id="cvList" class="cv-list"></div>
     <div id="cvMsg" class="cv-msg"></div>
   </div>
