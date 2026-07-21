@@ -103,18 +103,9 @@ if (matchMedia('(max-width: 767px)').matches && !location.search.includes('pc'))
   .sortbar select{font-size:12px;padding:4px 7px;border:1px solid var(--line);border-radius:6px;}
   .sortbar select:disabled{opacity:.45;}
   td.region .rv{font-weight:400;font-size:11.5px;color:var(--min);margin-left:6px;}
-  .cvb{border:none;background:none;font-size:14px;cursor:pointer;padding:0 3px;margin-left:3px;opacity:.7;}
-  .cvb:hover{opacity:1;}
-  #cctvModal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:110;align-items:center;justify-content:center;}
-  .cv-box{background:#fff;border-radius:12px;padding:14px 16px;width:min(640px,94vw);max-height:90vh;overflow-y:auto;}
-  .cv-head{display:flex;align-items:center;justify-content:space-between;font-weight:700;color:var(--blue);font-size:14px;margin-bottom:9px;}
-  .cv-head button{border:none;background:none;font-size:17px;color:#999;cursor:pointer;}
-  #cctvVideo{width:100%;background:#000;border-radius:8px;display:block;min-height:220px;}
-  .cv-list{margin-top:9px;display:flex;flex-direction:column;gap:4px;max-height:190px;overflow-y:auto;}
-  .cv-item{text-align:left;border:1px solid var(--line);background:#fff;border-radius:7px;padding:7px 10px;font-size:12.5px;cursor:pointer;}
-  .cv-item:hover{border-color:var(--blue);}
-  .cv-item.on{border-color:var(--blue);background:#eef4fd;color:var(--blue);font-weight:700;}
-  .cv-msg{font-size:12px;color:#888;padding:8px 2px;line-height:1.6;}
+  .cvb{border:1px solid #c7d8ef;background:#f4f8fd;color:var(--blue);font-size:10.5px;font-weight:700;
+       border-radius:10px;padding:2px 7px;margin-left:7px;cursor:pointer;letter-spacing:-0.2px;}
+  .cvb:hover{background:var(--blue);color:#fff;border-color:var(--blue);}
   tr.no-rain td.region{color:#aaa;}
   .foot{margin-top:12px;font-size:12px;color:#999;}
   .foot a{color:var(--blue);}
@@ -541,7 +532,7 @@ async function loadTable(ref){
   regionRain = {};
   body.innerHTML = list.map((r,i)=>{
     const sh = i%2 ? ' shade' : '';
-    return `<tr class="region-row${sh}" data-rg="${i}"><td class="region"><span id="rn${i}">${r.name}</span><button class="cvb" onclick="openCctv(${r.nx},${r.ny},'${r.name.replace(/'/g,'')}')" title="주변 도로 CCTV">📹</button></td>${'<td></td>'.repeat(7)}</tr>
+    return `<tr class="region-row${sh}" data-rg="${i}"><td class="region"><span id="rn${i}">${r.name}</span><button class="cvb" onclick="openCctv(${r.nx},${r.ny},'${r.name.replace(/'/g,'')}')" title="주변 도로 CCTV 보기">CCTV</button></td>${'<td></td>'.repeat(7)}</tr>
       <tr class="${sh.trim()}" data-rg="${i}"><td class="label">날씨</td>${Array.from({length:7},(_,k)=>`<td class="wx" id="w${i}_${k}">⋯</td>`).join('')}</tr>
       <tr class="${sh.trim()}" data-rg="${i}"><td class="label">기온</td>${Array.from({length:7},(_,k)=>`<td id="t${i}_${k}"></td>`).join('')}</tr>
       <tr class="${sh.trim()}" data-rg="${i}"><td class="label">강수량</td>${Array.from({length:7},(_,k)=>`<td id="r${i}_${k}"></td>`).join('')}</tr>
@@ -601,68 +592,12 @@ async function loadTable(ref){
 }
 
 // ── 도로 CCTV (국가교통정보센터) ──
-// ITS는 9443 포트라 Cloudflare 프록시가 접근할 수 없어 브라우저가 직접 호출한다.
-// 인증키는 저장소에 두지 않고 서버(환경변수)에서 받아온다.
-let itsKey = null;
-async function getItsKey(){
-  if (itsKey) return itsKey;
-  const j = await fetch('/api/itskey').then(r=>r.json());
-  if (j.error) throw new Error(j.error);
-  itsKey = j.key;
-  return itsKey;
-}
-let hlsInst = null;
-function closeCctv(){
-  document.getElementById('cctvModal').style.display = 'none';
-  const v = document.getElementById('cctvVideo');
-  try{ v.pause(); v.removeAttribute('src'); v.load(); }catch(e){}
-  if (hlsInst){ try{ hlsInst.destroy(); }catch(e){} hlsInst = null; }
-}
-function playCctv(url, name, btn){
-  document.getElementById('cvTitle').textContent = name;
-  document.querySelectorAll('#cvList .cv-item').forEach(b=>b.classList.remove('on'));
-  if (btn) btn.classList.add('on');
-  const v = document.getElementById('cctvVideo');
-  if (hlsInst){ try{ hlsInst.destroy(); }catch(e){} hlsInst = null; }
-  if (window.Hls && window.Hls.isSupported()){
-    hlsInst = new window.Hls({ liveDurationInfinity:true });
-    hlsInst.loadSource(url);
-    hlsInst.attachMedia(v);
-    hlsInst.on(window.Hls.Events.MANIFEST_PARSED, ()=>v.play().catch(()=>{}));
-  } else {
-    v.src = url; v.play().catch(()=>{});  // Safari 등 네이티브 HLS
-  }
-}
-async function openCctv(nx, ny, name){
-  const modal = document.getElementById('cctvModal');
-  const list = document.getElementById('cvList');
-  const msg = document.getElementById('cvMsg');
-  modal.style.display = 'flex';
-  document.getElementById('cvTitle').textContent = name + ' 주변 CCTV';
-  list.innerHTML = ''; msg.textContent = '주변 카메라 찾는 중...';
-  try{
-    const key = await getItsKey();
-    const p = gridToLatLon(nx, ny);
-    const d = 0.18; // 약 ±18km
-    const u = `https://openapi.its.go.kr:9443/cctvInfo?apiKey=${key}&type=all&cctvType=1&getType=json`
-      + `&minX=${(p.lon-d).toFixed(4)}&maxX=${(p.lon+d).toFixed(4)}&minY=${(p.lat-d).toFixed(4)}&maxY=${(p.lat+d).toFixed(4)}`;
-    const j = await fetch(u).then(r=>r.json());
-    if (j.header && j.header.resultCode && j.header.resultCode !== 0){ msg.textContent = 'ITS 오류: ' + (j.header.resultMsg||''); return; }
-    if (j.error){ msg.textContent = j.error; return; }
-    const data = (j.response && j.response.data) || [];
-    if (!data.length){ msg.textContent = '이 지역 주변에는 공개된 도로 CCTV가 없습니다.'; return; }
-    const near = data.map(c=>({...c, d:(c.coordx-p.lon)**2 + (c.coordy-p.lat)**2}))
-                     .sort((a,b)=>a.d-b.d).slice(0,8);
-    list.innerHTML = near.map((c,i)=>{
-      const km = (Math.sqrt(c.d)*111).toFixed(1);
-      const nm = (c.cctvname||'CCTV').replace(/'/g,'');
-      return `<button class="cv-item${i===0?' on':''}" onclick="playCctv('${c.cctvurl}','${nm}',this)">${nm} <span style="color:#999">· ${km}km</span></button>`;
-    }).join('');
-    msg.innerHTML = '· 국가교통정보센터 제공 도로 CCTV입니다. 목록에서 다른 카메라를 고를 수 있습니다.';
-    playCctv(near[0].cctvurl, near[0].cctvname || name, list.querySelector('.cv-item'));
-  }catch(e){
-    msg.textContent = 'CCTV를 불러오지 못했습니다 (' + e.message + ')';
-  }
+// ITS 영상은 9443 포트 + HTTP 전용이라 HTTPS 사이트에 직접 넣을 수 없다.
+// 대신 해당 위치의 공식 CCTV 지도를 새 창으로 연다.
+function openCctv(nx, ny, name){
+  const p = gridToLatLon(nx, ny);
+  const u = `https://www.its.go.kr/map/cctv?lat=${p.lat.toFixed(5)}&lng=${p.lon.toFixed(5)}&zoom=12`;
+  window.open(u, '_blank', 'noopener');
 }
 
 // ── 강수 상세 차트 팝업 ──
@@ -1058,15 +993,6 @@ async function addPlace(lat, lon, name){
 }
 loadAll();
 </script>
-<div id="cctvModal" onclick="closeCctv()">
-  <div class="cv-box" onclick="event.stopPropagation()">
-    <div class="cv-head"><span id="cvTitle">도로 CCTV</span><button onclick="closeCctv()">✕</button></div>
-    <video id="cctvVideo" controls autoplay muted playsinline></video>
-    <div id="cvList" class="cv-list"></div>
-    <div id="cvMsg" class="cv-msg"></div>
-  </div>
-</div>
-<script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.17/dist/hls.min.js"></script>
 <div id="rainModal" onclick="this.style.display='none'">
   <div class="rm-box" onclick="event.stopPropagation()">
     <div class="rm-head"><span id="rmTitle"></span><button onclick="document.getElementById('rainModal').style.display='none'">✕</button></div>

@@ -11,17 +11,8 @@ const SAFE = ['pageNo','numOfRows','base_date','base_time','nx','ny','regId','tm
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
-    // 도로 CCTV 인증키 전달
-    // ITS API는 9443 포트를 쓰는데 Cloudflare Workers는 이 포트로 나갈 수 없어(522 오류)
-    // 브라우저가 ITS를 직접 호출한다. 키는 저장소(GitHub)에 두지 않고 여기서만 전달한다.
-    if (url.pathname === '/api/itskey') {
-      const KEY = env.ITS_KEY;
-      if (!KEY) return json({ error: 'ITS_KEY 환경변수가 설정되지 않았습니다' }, 500);
-      return new Response(JSON.stringify({ key: KEY }), {
-        status: 200,
-        headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'private, max-age=600' },
-      });
-    }
+    // 참고: 도로 CCTV는 ITS가 9443 포트 + HTTP 전용 스트림만 제공해
+    // 프록시/임베드가 불가능하므로, 화면에서 공식 CCTV 지도를 새 창으로 연다.
     if (url.pathname === '/api/weather') {
       const KEY = env.KMA_KEY;
       if (!KEY) return json({ error: 'KMA_KEY 환경변수가 설정되지 않았습니다' }, 500);
