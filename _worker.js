@@ -11,26 +11,16 @@ const SAFE = ['pageNo','numOfRows','base_date','base_time','nx','ny','regId','tm
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
-    // 도로 CCTV (국가교통정보센터) — ITS_KEY 환경변수 사용
-    if (url.pathname === '/api/cctv') {
+    // 도로 CCTV 인증키 전달
+    // ITS API는 9443 포트를 쓰는데 Cloudflare Workers는 이 포트로 나갈 수 없어(522 오류)
+    // 브라우저가 ITS를 직접 호출한다. 키는 저장소(GitHub)에 두지 않고 여기서만 전달한다.
+    if (url.pathname === '/api/itskey') {
       const KEY = env.ITS_KEY;
       if (!KEY) return json({ error: 'ITS_KEY 환경변수가 설정되지 않았습니다' }, 500);
-      const qs = new URLSearchParams({ apiKey: KEY, getType: 'json' });
-      for (const k of ['minX','maxX','minY','maxY','type','cctvType']) {
-        const v = url.searchParams.get(k);
-        if (v != null) qs.set(k, v);
-      }
-      if (!qs.has('type')) qs.set('type', 'all');
-      if (!qs.has('cctvType')) qs.set('cctvType', '1');
-      try {
-        const r = await fetch(`https://openapi.its.go.kr:9443/cctvInfo?${qs}`);
-        return new Response(await r.text(), {
-          status: 200,
-          headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'public, max-age=300' },
-        });
-      } catch (e) {
-        return json({ error: 'CCTV 조회 실패: ' + String(e) }, 502);
-      }
+      return new Response(JSON.stringify({ key: KEY }), {
+        status: 200,
+        headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'private, max-age=600' },
+      });
     }
     if (url.pathname === '/api/weather') {
       const KEY = env.KMA_KEY;

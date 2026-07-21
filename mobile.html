@@ -558,6 +558,16 @@ async function loadTable(ref){
 }
 
 // ── 도로 CCTV (국가교통정보센터) ──
+// ITS는 9443 포트라 Cloudflare 프록시가 접근할 수 없어 브라우저가 직접 호출한다.
+// 인증키는 저장소에 두지 않고 서버(환경변수)에서 받아온다.
+let itsKey = null;
+async function getItsKey(){
+  if (itsKey) return itsKey;
+  const j = await fetch('/api/itskey').then(r=>r.json());
+  if (j.error) throw new Error(j.error);
+  itsKey = j.key;
+  return itsKey;
+}
 let hlsInst = null;
 function closeCctv(){
   document.getElementById('cctvModal').style.display = 'none';
@@ -588,10 +598,13 @@ async function openCctv(nx, ny, name){
   document.getElementById('cvTitle').textContent = name + ' 주변 CCTV';
   list.innerHTML = ''; msg.textContent = '주변 카메라 찾는 중...';
   try{
+    const key = await getItsKey();
     const p = gridToLatLon(nx, ny);
     const d = 0.18; // 약 ±18km
-    const u = `/api/cctv?minX=${(p.lon-d).toFixed(4)}&maxX=${(p.lon+d).toFixed(4)}&minY=${(p.lat-d).toFixed(4)}&maxY=${(p.lat+d).toFixed(4)}`;
+    const u = `https://openapi.its.go.kr:9443/cctvInfo?apiKey=${key}&type=all&cctvType=1&getType=json`
+      + `&minX=${(p.lon-d).toFixed(4)}&maxX=${(p.lon+d).toFixed(4)}&minY=${(p.lat-d).toFixed(4)}&maxY=${(p.lat+d).toFixed(4)}`;
     const j = await fetch(u).then(r=>r.json());
+    if (j.header && j.header.resultCode && j.header.resultCode !== 0){ msg.textContent = 'ITS 오류: ' + (j.header.resultMsg||''); return; }
     if (j.error){ msg.textContent = j.error; return; }
     const data = (j.response && j.response.data) || [];
     if (!data.length){ msg.textContent = '이 지역 주변에는 공개된 도로 CCTV가 없습니다.'; return; }
