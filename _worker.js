@@ -8,8 +8,10 @@ const ALLOWED = {
   vilage:  'VilageFcstInfoService_2.0/getVilageFcst',
   midLand: 'MidFcstInfoService/getMidLandFcst',
   midTa:   'MidFcstInfoService/getMidTa',
+  warn:    'WthrWrnInfoService/getWthrWrnList',   // 기상특보 목록
 };
-const SAFE = ['pageNo','numOfRows','base_date','base_time','nx','ny','regId','tmFc'];
+const SAFE = ['pageNo','numOfRows','base_date','base_time','nx','ny','regId','tmFc',
+              'fromTmFc','toTmFc','stnId'];
 
 export default {
   async fetch(request, env) {

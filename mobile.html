@@ -101,6 +101,9 @@
   .card h2 .rv{font-weight:400;font-size:12px;color:var(--min);margin-left:6px;}
   .cvb{border:1px solid #c7d8ef;background:#f4f8fd;color:var(--blue);font-size:10.5px;font-weight:700;
        border-radius:10px;padding:2px 7px;margin-left:6px;cursor:pointer;vertical-align:1px;letter-spacing:-0.2px;}
+  .warn{display:inline-block;margin-left:6px;padding:2px 7px;border-radius:10px;font-size:10.5px;font-weight:700;
+        background:#fff3e0;color:#e65100;border:1px solid #ffcc80;vertical-align:1px;}
+  .warn.lv2{background:#ffebee;color:#c62828;border-color:#ef9a9a;}
   #cctvModal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:110;align-items:center;justify-content:center;}
   .cv-box{background:#fff;border-radius:12px;padding:12px;width:min(560px,95vw);max-height:92vh;overflow-y:auto;}
   .cv-head{display:flex;align-items:center;justify-content:space-between;font-weight:700;color:var(--blue);font-size:14px;margin-bottom:8px;}
@@ -425,6 +428,48 @@ async function renderBriefing(idx){
   loadTable(r); // 기준 지점에서 가까운 순으로 카드 정렬
 }
 
+// ── 기상특보 ──
+// 특보 구역(지점번호)별로 조회해 지역 카드에 배지로 표시
+const WARN_STN = {
+  '서울':109, '경기':109, '인천':109, '강원':105,
+  '충청':133, '전라':156, '경상':143, '제주':184,
+};
+function warnStn(name){
+  const g = name.replace(/📍|\s|\(.*\)/g,'');
+  for (const k in WARN_STN) if (g.includes(k)) return WARN_STN[k];
+  return 109;
+}
+let warnCache = {};
+async function loadWarn(stn){
+  if (warnCache[stn] !== undefined) return warnCache[stn];
+  try{
+    const n = kstNow();
+    const to = ymd(n), from = ymd(addDays(n,-2));
+    const items = await api(`${API}?service=warn&pageNo=1&numOfRows=30&stnId=${stn}&fromTmFc=${from}&toTmFc=${to}`);
+    const arr = Array.isArray(items) ? items : (items ? [items] : []);
+    // 해제되지 않은 최신 특보만
+    const live = arr.filter(w => !(w.cancel === 'Y' || /해제/.test(w.title||'')));
+    warnCache[stn] = live.length ? live[live.length-1] : null;
+  }catch(e){ warnCache[stn] = null; }
+  return warnCache[stn];
+}
+function warnLabel(w){
+  const t = (w.title || w.t1 || '').replace(/\[.*?\]/g,'').trim();
+  const m = t.match(/(폭염|호우|대설|강풍|풍랑|한파|건조|태풍|황사|해일)\s*(경보|주의보)/);
+  return m ? m[0].replace(/\s/g,'') : (t.slice(0, 10) || '특보');
+}
+async function paintWarn(list){
+  for (let i=0;i<list.length;i++){
+    const el = document.getElementById('wn'+i);
+    if (!el) continue;
+    const w = await loadWarn(warnStn(list[i].name));
+    if (!w) continue;
+    const lb = warnLabel(w);
+    el.className = 'warn' + (/경보/.test(lb) ? ' lv2' : '');
+    el.textContent = lb;
+  }
+}
+
 // ── 강수량 정렬 ──
 let sortMode = 'loc';   // 'loc' = 내 위치 순, 'rain' = 비 많은 순
 let regionRain = {};    // 지역 인덱스 → 7일 {pcp,pop}
@@ -518,8 +563,10 @@ async function loadTable(ref){
   regionRain = {};
   main.innerHTML = list.map((r,i)=>
     `<div class="card" id="card${i}"><h2><span id="rn${i}">${r.name}</span>`
+    + `<span id="wn${i}"></span>`
     + (hasCam(r.nx, r.ny) ? `<button class="cvb" onclick="openCctv(${r.nx},${r.ny},'${r.name.replace(/'/g,'')}')" title="실시간 거리 영상">CCTV</button>` : '') + `</h2>`
     + `<div class="days" id="c${i}">불러오는 중...</div></div>`).join('');
+  paintWarn(list);
 
   let done = 0;
   await Promise.all(list.map(async (r,i)=>{
