@@ -101,6 +101,16 @@
   .card h2 .rv{font-weight:400;font-size:12px;color:var(--min);margin-left:6px;}
   .cvb{border:1px solid #c7d8ef;background:#f4f8fd;color:var(--blue);font-size:10.5px;font-weight:700;
        border-radius:10px;padding:2px 7px;margin-left:6px;cursor:pointer;vertical-align:1px;letter-spacing:-0.2px;}
+  #cctvModal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:110;align-items:center;justify-content:center;}
+  .cv-box{background:#fff;border-radius:12px;padding:12px;width:min(560px,95vw);max-height:92vh;overflow-y:auto;}
+  .cv-head{display:flex;align-items:center;justify-content:space-between;font-weight:700;color:var(--blue);font-size:14px;margin-bottom:8px;}
+  .cv-head button{border:none;background:none;font-size:18px;color:#999;cursor:pointer;}
+  .cv-video{position:relative;width:100%;padding-top:56.25%;background:#000;border-radius:8px;overflow:hidden;}
+  .cv-video iframe{position:absolute;inset:0;width:100%;height:100%;border:0;}
+  .cv-list{margin-top:8px;display:flex;flex-direction:column;gap:4px;max-height:165px;overflow-y:auto;}
+  .cv-item{text-align:left;border:1px solid var(--line);background:#fff;border-radius:7px;padding:7px 9px;font-size:12px;cursor:pointer;}
+  .cv-item.on{border-color:var(--blue);background:#eef4fd;color:var(--blue);font-weight:700;}
+  .cv-msg{font-size:11.5px;color:#888;padding:7px 2px 0;line-height:1.6;}
   .card.no-rain h2{color:#aaa;background:#f7f7f8;}
   .today-col{background:#eef4fd;}
   .foot{font-size:11px;color:#999;padding:4px 10px 14px;}
@@ -508,7 +518,7 @@ async function loadTable(ref){
   regionRain = {};
   main.innerHTML = list.map((r,i)=>
     `<div class="card" id="card${i}"><h2><span id="rn${i}">${r.name}</span>`
-    + `<button class="cvb" onclick="openCctv(${r.nx},${r.ny},'${r.name.replace(/'/g,'')}')" title="주변 도로 CCTV 보기">CCTV</button></h2>`
+    + (hasCam(r.nx, r.ny) ? `<button class="cvb" onclick="openCctv(${r.nx},${r.ny},'${r.name.replace(/'/g,'')}')" title="실시간 거리 영상">CCTV</button>` : '') + `</h2>`
     + `<div class="days" id="c${i}">불러오는 중...</div></div>`).join('');
 
   let done = 0;
@@ -549,13 +559,46 @@ async function loadTable(ref){
   if (seq === tableSeq) status.textContent = `업데이트: ${kstNow().toTimeString().slice(0,5)} KST`;
 }
 
-// ── 도로 CCTV (국가교통정보센터) ──
-// ITS는 해외 서버 접근을 차단해 영상을 직접 가져올 수 없다.
-// 대신 해당 위치의 공식 CCTV 지도를 새 창으로 연다.
-function openCctv(nx, ny, name){
+// ── 실시간 거리 영상 (YouTube 라이브캠) ──
+// 도로 CCTV(ITS)는 해외 서버 접근이 막혀 있고 차만 보이므로,
+// 사람이 오가는 모습이 보이는 24시간 라이브캠을 임베드한다.
+const LIVECAMS = [
+  {name:'명동 거리',        id:'zOhsSCZz0_Y', lat:37.5636, lon:126.9826, tag:'사람 많음'},
+  {name:'동대문 DDP',       id:'k3HEPqg5eAo', lat:37.5665, lon:127.0092, tag:'거리'},
+  {name:'롯데월드 (잠실)',  id:'EQ6Oj-77weY', lat:37.5111, lon:127.0980, tag:'야외'},
+  {name:'반포대교 한강',    id:'RVvYQghFCXk', lat:37.5133, lon:126.9959, tag:'한강'},
+  {name:'여의도 한강',      id:'vk5BHoDxXf0', lat:37.5219, lon:126.9245, tag:'한강'},
+  {name:'부산 광안리',      id:'x4Q9K-7W-pM', lat:35.1533, lon:129.1186, tag:'해변'},
+  {name:'부산 광안대교',    id:'jmVmZlsQIL8', lat:35.1467, lon:129.1250, tag:'해변'},
+  {name:'부산 송정해수욕장',id:'tQ9tse8cTy4', lat:35.1786, lon:129.1997, tag:'해변'},
+];
+// 그 지역을 실제로 비추는 라이브캠(20km 이내)이 있을 때만 버튼을 보여준다
+function camsNear(nx, ny){
   const p = gridToLatLon(nx, ny);
-  const u = `https://www.its.go.kr/map/cctv?lat=${p.lat.toFixed(5)}&lng=${p.lon.toFixed(5)}&zoom=12`;
-  window.open(u, '_blank', 'noopener');
+  return LIVECAMS.map(c=>({...c, km: Math.sqrt(((c.lon-p.lon)*88)**2 + ((c.lat-p.lat)*111)**2)}))
+                 .filter(c=>c.km <= 20).sort((a,b)=>a.km-b.km);
+}
+function hasCam(nx, ny){ return camsNear(nx, ny).length > 0; }
+function closeCctv(){
+  document.getElementById('cctvModal').style.display = 'none';
+  document.getElementById('cvFrame').src = 'about:blank';
+}
+function playCam(id, name, btn){
+  document.getElementById('cvTitle').textContent = name;
+  document.querySelectorAll('#cvList .cv-item').forEach(b=>b.classList.remove('on'));
+  if (btn) btn.classList.add('on');
+  document.getElementById('cvFrame').src =
+    `https://www.youtube.com/embed/${id}?autoplay=1&mute=1&playsinline=1`;
+}
+function openCctv(nx, ny, name){
+  const near = camsNear(nx, ny);
+  if (!near.length) return;
+  document.getElementById('cctvModal').style.display = 'flex';
+  document.getElementById('cvList').innerHTML = near.map((c,i)=>
+    `<button class="cv-item${i===0?' on':''}" onclick="playCam('${c.id}','${c.name}',this)">${c.name}
+      <span style="color:#999">· ${c.km.toFixed(1)}km · ${c.tag}</span></button>`).join('');
+  document.getElementById('cvMsg').textContent = '· 24시간 실시간 방송입니다. 목록에서 다른 장소를 고를 수 있습니다.';
+  playCam(near[0].id, near[0].name, document.querySelector('#cvList .cv-item'));
 }
 
 // ── 강수 상세 차트 팝업 ──
@@ -936,6 +979,14 @@ async function addPlace(lat, lon, name){
 }
 loadAll();
 </script>
+<div id="cctvModal" onclick="closeCctv()">
+  <div class="cv-box" onclick="event.stopPropagation()">
+    <div class="cv-head"><span id="cvTitle">실시간 거리</span><button onclick="closeCctv()">✕</button></div>
+    <div class="cv-video"><iframe id="cvFrame" src="about:blank" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe></div>
+    <div id="cvList" class="cv-list"></div>
+    <div id="cvMsg" class="cv-msg"></div>
+  </div>
+</div>
 <div id="rainModal" onclick="this.style.display='none'">
   <div class="rm-box" onclick="event.stopPropagation()">
     <div class="rm-head"><span id="rmTitle"></span><button onclick="document.getElementById('rainModal').style.display='none'">✕</button></div>
