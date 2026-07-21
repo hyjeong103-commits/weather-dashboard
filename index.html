@@ -106,17 +106,6 @@ if (matchMedia('(max-width: 767px)').matches && !location.search.includes('pc'))
   .cvb{border:1px solid #c7d8ef;background:#f4f8fd;color:var(--blue);font-size:10.5px;font-weight:700;
        border-radius:10px;padding:2px 7px;margin-left:7px;cursor:pointer;letter-spacing:-0.2px;}
   .cvb:hover{background:var(--blue);color:#fff;border-color:var(--blue);}
-  #cctvModal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:110;align-items:center;justify-content:center;}
-  .cv-box{background:#fff;border-radius:12px;padding:14px 16px;width:min(640px,94vw);max-height:90vh;overflow-y:auto;}
-  .cv-head{display:flex;align-items:center;justify-content:space-between;font-weight:700;color:var(--blue);font-size:14px;margin-bottom:9px;}
-  .cv-head button{border:none;background:none;font-size:17px;color:#999;cursor:pointer;}
-  #cctvVideo{width:100%;background:#000;border-radius:8px;display:block;min-height:220px;}
-  .cv-list{margin-top:9px;display:flex;flex-direction:column;gap:4px;max-height:180px;overflow-y:auto;}
-  .cv-item{text-align:left;border:1px solid var(--line);background:#fff;border-radius:7px;padding:7px 10px;font-size:12.5px;cursor:pointer;}
-  .cv-item:hover{border-color:var(--blue);}
-  .cv-item.on{border-color:var(--blue);background:#eef4fd;color:var(--blue);font-weight:700;}
-  .cv-msg{font-size:12px;color:#888;padding:8px 2px;line-height:1.6;}
-  .cv-msg a{color:var(--blue);}
   tr.no-rain td.region{color:#aaa;}
   .foot{margin-top:12px;font-size:12px;color:#999;}
   .foot a{color:var(--blue);}
@@ -603,61 +592,12 @@ async function loadTable(ref){
 }
 
 // ── 도로 CCTV (국가교통정보센터) ──
-// 목록·영상 모두 Cloudflare가 중계한다 (ITS 홈페이지 내부 API 사용, 인증키 불필요)
-let hlsInst = null;
-function closeCctv(){
-  document.getElementById('cctvModal').style.display = 'none';
-  const v = document.getElementById('cctvVideo');
-  try{ v.pause(); v.removeAttribute('src'); v.load(); }catch(e){}
-  if (hlsInst){ try{ hlsInst.destroy(); }catch(e){} hlsInst = null; }
-}
-function playCctv(rawUrl, name, btn){
-  document.getElementById('cvTitle').textContent = name;
-  document.querySelectorAll('#cvList .cv-item').forEach(b=>b.classList.remove('on'));
-  if (btn) btn.classList.add('on');
-  const src = '/api/stream?u=' + encodeURIComponent(rawUrl);
-  const v = document.getElementById('cctvVideo');
-  if (hlsInst){ try{ hlsInst.destroy(); }catch(e){} hlsInst = null; }
-  if (window.Hls && window.Hls.isSupported()){
-    hlsInst = new window.Hls({ liveDurationInfinity:true, manifestLoadingTimeOut:15000 });
-    hlsInst.loadSource(src);
-    hlsInst.attachMedia(v);
-    hlsInst.on(window.Hls.Events.MANIFEST_PARSED, ()=>v.play().catch(()=>{}));
-    hlsInst.on(window.Hls.Events.ERROR, (_,d)=>{
-      if (d.fatal) document.getElementById('cvMsg').textContent = '영상을 재생할 수 없습니다 (' + d.details + ')';
-    });
-  } else {
-    v.src = src; v.play().catch(()=>{});
-  }
-}
-async function openCctv(nx, ny, name){
-  const modal = document.getElementById('cctvModal');
-  const list = document.getElementById('cvList');
-  const msg = document.getElementById('cvMsg');
-  modal.style.display = 'flex';
-  document.getElementById('cvTitle').textContent = name + ' 주변 CCTV';
-  list.innerHTML = ''; msg.textContent = '주변 카메라 찾는 중...';
+// ITS는 해외 서버 접근을 차단해 영상을 직접 가져올 수 없다.
+// 대신 해당 위치의 공식 CCTV 지도를 새 창으로 연다.
+function openCctv(nx, ny, name){
   const p = gridToLatLon(nx, ny);
-  try{
-    const d = 0.18; // 약 ±18km
-    const u = `/api/cctv?minX=${(p.lon-d).toFixed(4)}&maxX=${(p.lon+d).toFixed(4)}&minY=${(p.lat-d).toFixed(4)}&maxY=${(p.lat+d).toFixed(4)}`;
-    const j = await fetch(u).then(r=>r.json());
-    if (j.error) throw new Error(j.error);
-    const data = j.data || [];
-    if (!data.length){ msg.textContent = '이 지역 주변에는 공개된 도로 CCTV가 없습니다.'; return; }
-    const near = data.map(c=>({...c, dd:(c.x-p.lon)**2 + (c.y-p.lat)**2}))
-                     .sort((a,b)=>a.dd-b.dd).slice(0,8);
-    list.innerHTML = near.map((c,i)=>{
-      const km = (Math.sqrt(c.dd)*111).toFixed(1);
-      const nm = (c.name||'CCTV').replace(/'/g,'');
-      return `<button class="cv-item${i===0?' on':''}" onclick="playCctv('${c.url}','${nm}',this)">${nm} <span style="color:#999">· ${km}km</span></button>`;
-    }).join('');
-    msg.innerHTML = '· 국가교통정보센터 도로 CCTV · 목록에서 다른 카메라를 고를 수 있습니다.';
-    playCctv(near[0].url, near[0].name || name, list.querySelector('.cv-item'));
-  }catch(e){
-    msg.innerHTML = 'CCTV를 불러오지 못했습니다.<br><span style="color:#aaa">' + e.message + '</span><br>'
-      + `<a href="https://www.its.go.kr/map/cctv?lat=${p.lat.toFixed(5)}&lng=${p.lon.toFixed(5)}&zoom=12" target="_blank" rel="noopener">공식 CCTV 지도에서 보기 →</a>`;
-  }
+  const u = `https://www.its.go.kr/map/cctv?lat=${p.lat.toFixed(5)}&lng=${p.lon.toFixed(5)}&zoom=12`;
+  window.open(u, '_blank', 'noopener');
 }
 
 // ── 강수 상세 차트 팝업 ──
@@ -1053,15 +993,6 @@ async function addPlace(lat, lon, name){
 }
 loadAll();
 </script>
-<div id="cctvModal" onclick="closeCctv()">
-  <div class="cv-box" onclick="event.stopPropagation()">
-    <div class="cv-head"><span id="cvTitle">도로 CCTV</span><button onclick="closeCctv()">✕</button></div>
-    <video id="cctvVideo" controls autoplay muted playsinline></video>
-    <div id="cvList" class="cv-list"></div>
-    <div id="cvMsg" class="cv-msg"></div>
-  </div>
-</div>
-<script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.17/dist/hls.min.js"></script>
 <div id="rainModal" onclick="this.style.display='none'">
   <div class="rm-box" onclick="event.stopPropagation()">
     <div class="rm-head"><span id="rmTitle"></span><button onclick="document.getElementById('rainModal').style.display='none'">✕</button></div>
