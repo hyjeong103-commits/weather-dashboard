@@ -28,8 +28,19 @@ export default {
 
       try {
         const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)';
-        // 1) XSRF 토큰 + 세션 쿠키 받기
-        const r1 = await fetch('https://www.its.go.kr/map/cctv', { headers: { 'user-agent': UA } });
+        // ITS는 Cloudflare에서 HTTPS 인증서 검증에 실패(526)할 수 있어 여러 경로를 차례로 시도한다.
+        const BASES = ['http://www.its.go.kr', 'https://its.go.kr', 'https://www.its.go.kr'];
+        let r1 = null, base = '', why = '';
+        for (const b of BASES) {
+          try {
+            const t = await fetch(b + '/map/cctv', { headers: { 'user-agent': UA }, redirect: 'follow' });
+            if (t.status < 500) { r1 = t; base = b; break; }
+            why = b + '→' + t.status;
+          } catch (e) { why = b + '→' + String(e).slice(0, 40); }
+        }
+        if (!r1) return json({ error: 'ITS 연결 실패 (' + why + ')' }, 502);
+
+        // 1) XSRF 토큰 + 세션 쿠키
         const setCookies = typeof r1.headers.getSetCookie === 'function'
           ? r1.headers.getSetCookie()
           : (r1.headers.get('set-cookie') ? [r1.headers.get('set-cookie')] : []);
@@ -40,8 +51,8 @@ export default {
           const m = kv.match(/^XSRF-TOKEN=(.*)$/);
           if (m) token = decodeURIComponent(m[1]);
         }
-        // 2) 전국 CCTV 목록
-        const r2 = await fetch('https://www.its.go.kr/map/getMarkers', {
+        // 2) 전국 CCTV 목록 (토큰을 받은 것과 같은 경로로 요청해야 세션이 유지된다)
+        const r2 = await fetch(base + '/map/getMarkers', {
           method: 'POST',
           headers: {
             'content-type': 'application/json',
@@ -50,11 +61,11 @@ export default {
             'x-requested-with': 'XMLHttpRequest',
             'cookie': cookie,
             'user-agent': UA,
-            'referer': 'https://www.its.go.kr/map/cctv',
+            'referer': base + '/map/cctv',
           },
           body: JSON.stringify({ body: { data: { type: 'CCTV' } } }),
         });
-        if (!r2.ok) return json({ error: 'ITS 응답 오류 ' + r2.status }, 502);
+        if (!r2.ok) return json({ error: `ITS 응답 오류 ${r2.status} (경로 ${base}, 토큰 ${token ? '있음' : '없음'})` }, 502);
         const data = await r2.json();
         const feats = data.features || [];
         // 3) 요청 범위 안의 카메라만 추려서 가볍게 반환
@@ -89,7 +100,7 @@ export default {
         return json({ error: '허용되지 않은 주소입니다' }, 400);
       }
       try {
-        const r = await fetch(target, { headers: { 'user-agent': 'Mozilla/5.0', 'referer': 'https://www.its.go.kr/' } });
+        const r = await fetch(target, { headers: { 'user-agent': 'Mozilla/5.0', 'referer': 'http://www.its.go.kr/' } });
         if (!r.ok) return json({ error: '영상 서버 응답 오류 ' + r.status }, 502);
         const buf = await r.arrayBuffer();
         const head = new TextDecoder().decode(buf.slice(0, 16));
