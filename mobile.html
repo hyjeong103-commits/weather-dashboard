@@ -560,14 +560,7 @@ async function loadTable(ref){
 }
 
 // ── 도로 CCTV (국가교통정보센터) ──
-// 목록은 Deno Deploy 프록시(9443 접근 가능), 영상은 Cloudflare가 중계(HTTP→HTTPS)
-let cctvApi = null;
-async function getCctvApi(){
-  if (cctvApi !== null) return cctvApi;
-  try{ const j = await fetch('/api/config').then(r=>r.json()); cctvApi = j.cctvApi || ''; }
-  catch(e){ cctvApi = ''; }
-  return cctvApi;
-}
+// 목록·영상 모두 Cloudflare가 중계한다 (ITS 홈페이지 내부 API 사용, 인증키 불필요)
 let hlsInst = null;
 function closeCctv(){
   document.getElementById('cctvModal').style.display = 'none';
@@ -601,31 +594,26 @@ async function openCctv(nx, ny, name){
   modal.style.display = 'flex';
   document.getElementById('cvTitle').textContent = name + ' 주변 CCTV';
   list.innerHTML = ''; msg.textContent = '주변 카메라 찾는 중...';
+  const p = gridToLatLon(nx, ny);
   try{
-    const api = await getCctvApi();
-    const p = gridToLatLon(nx, ny);
-    if (!api){
-      msg.innerHTML = 'CCTV 목록 서버가 설정되지 않았습니다.<br>'
-        + `<a href="https://www.its.go.kr/map/cctv?lat=${p.lat.toFixed(5)}&lng=${p.lon.toFixed(5)}&zoom=12" target="_blank" rel="noopener">공식 CCTV 지도에서 보기 →</a>`;
-      return;
-    }
     const d = 0.18; // 약 ±18km
-    const u = `${api.replace(/\/$/,'')}/?minX=${(p.lon-d).toFixed(4)}&maxX=${(p.lon+d).toFixed(4)}&minY=${(p.lat-d).toFixed(4)}&maxY=${(p.lat+d).toFixed(4)}`;
+    const u = `/api/cctv?minX=${(p.lon-d).toFixed(4)}&maxX=${(p.lon+d).toFixed(4)}&minY=${(p.lat-d).toFixed(4)}&maxY=${(p.lat+d).toFixed(4)}`;
     const j = await fetch(u).then(r=>r.json());
-    if (j.error){ msg.textContent = j.error; return; }
-    const data = (j.response && j.response.data) || [];
+    if (j.error) throw new Error(j.error);
+    const data = j.data || [];
     if (!data.length){ msg.textContent = '이 지역 주변에는 공개된 도로 CCTV가 없습니다.'; return; }
-    const near = data.map(c=>({...c, dd:(c.coordx-p.lon)**2 + (c.coordy-p.lat)**2}))
+    const near = data.map(c=>({...c, dd:(c.x-p.lon)**2 + (c.y-p.lat)**2}))
                      .sort((a,b)=>a.dd-b.dd).slice(0,8);
     list.innerHTML = near.map((c,i)=>{
       const km = (Math.sqrt(c.dd)*111).toFixed(1);
-      const nm = (c.cctvname||'CCTV').replace(/'/g,'');
-      return `<button class="cv-item${i===0?' on':''}" onclick="playCctv('${c.cctvurl}','${nm}',this)">${nm} <span style="color:#999">· ${km}km</span></button>`;
+      const nm = (c.name||'CCTV').replace(/'/g,'');
+      return `<button class="cv-item${i===0?' on':''}" onclick="playCctv('${c.url}','${nm}',this)">${nm} <span style="color:#999">· ${km}km</span></button>`;
     }).join('');
     msg.innerHTML = '· 국가교통정보센터 도로 CCTV · 목록에서 다른 카메라를 고를 수 있습니다.';
-    playCctv(near[0].cctvurl, near[0].cctvname || name, list.querySelector('.cv-item'));
+    playCctv(near[0].url, near[0].name || name, list.querySelector('.cv-item'));
   }catch(e){
-    msg.textContent = 'CCTV를 불러오지 못했습니다 (' + e.message + ')';
+    msg.innerHTML = 'CCTV를 불러오지 못했습니다.<br><span style="color:#aaa">' + e.message + '</span><br>'
+      + `<a href="https://www.its.go.kr/map/cctv?lat=${p.lat.toFixed(5)}&lng=${p.lon.toFixed(5)}&zoom=12" target="_blank" rel="noopener">공식 CCTV 지도에서 보기 →</a>`;
   }
 }
 

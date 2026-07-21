@@ -9,14 +9,76 @@ const ALLOWED = {
 const SAFE = ['pageNo','numOfRows','base_date','base_time','nx','ny','regId','tmFc'];
 
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const url = new URL(request.url);
-    // 프론트에 필요한 설정값 (CCTV 목록 프록시 주소)
-    if (url.pathname === '/api/config') {
-      return new Response(JSON.stringify({ cctvApi: env.CCTV_API || '' }), {
-        status: 200,
-        headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'public, max-age=300' },
-      });
+    // CCTV 목록 — ITS 홈페이지가 쓰는 내부 API(443 포트)를 그대로 사용한다.
+    // 인증키가 필요 없고, XSRF 토큰만 먼저 받아 오면 된다.
+    if (url.pathname === '/api/cctv') {
+      const minX = parseFloat(url.searchParams.get('minX'));
+      const maxX = parseFloat(url.searchParams.get('maxX'));
+      const minY = parseFloat(url.searchParams.get('minY'));
+      const maxY = parseFloat(url.searchParams.get('maxY'));
+      if ([minX, maxX, minY, maxY].some((v) => Number.isNaN(v))) {
+        return json({ error: '좌표 범위가 필요합니다' }, 400);
+      }
+      const cacheKey = new Request(`https://cache.local/cctv?${minX},${maxX},${minY},${maxY}`);
+      const cache = caches.default;
+      const hit = await cache.match(cacheKey);
+      if (hit) return hit;
+
+      try {
+        const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)';
+        // 1) XSRF 토큰 + 세션 쿠키 받기
+        const r1 = await fetch('https://www.its.go.kr/map/cctv', { headers: { 'user-agent': UA } });
+        const setCookies = typeof r1.headers.getSetCookie === 'function'
+          ? r1.headers.getSetCookie()
+          : (r1.headers.get('set-cookie') ? [r1.headers.get('set-cookie')] : []);
+        let token = '', cookie = '';
+        for (const c of setCookies) {
+          const kv = c.split(';')[0];
+          cookie += (cookie ? '; ' : '') + kv;
+          const m = kv.match(/^XSRF-TOKEN=(.*)$/);
+          if (m) token = decodeURIComponent(m[1]);
+        }
+        // 2) 전국 CCTV 목록
+        const r2 = await fetch('https://www.its.go.kr/map/getMarkers', {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'accept': 'application/json',
+            'x-xsrf-token': token,
+            'x-requested-with': 'XMLHttpRequest',
+            'cookie': cookie,
+            'user-agent': UA,
+            'referer': 'https://www.its.go.kr/map/cctv',
+          },
+          body: JSON.stringify({ body: { data: { type: 'CCTV' } } }),
+        });
+        if (!r2.ok) return json({ error: 'ITS 응답 오류 ' + r2.status }, 502);
+        const data = await r2.json();
+        const feats = data.features || [];
+        // 3) 요청 범위 안의 카메라만 추려서 가볍게 반환
+        const out = [];
+        for (const f of feats) {
+          const c = f.geometry && f.geometry.coordinates;
+          if (!c) continue;
+          const [x, y] = c;
+          if (x < minX || x > maxX || y < minY || y > maxY) continue;
+          let info;
+          try { info = JSON.parse(f.properties.INFO); } catch (e) { continue; }
+          const src = info.webUrl || info.appUrl;
+          if (!src) continue;
+          out.push({ name: info.instlLcDc || 'CCTV', x, y, url: src });
+          if (out.length >= 40) break;
+        }
+        const res = new Response(JSON.stringify({ data: out }), {
+          headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'public, max-age=180' },
+        });
+        ctx.waitUntil(cache.put(cacheKey, res.clone()));
+        return res;
+      } catch (e) {
+        return json({ error: 'CCTV 목록 조회 실패: ' + String(e) }, 502);
+      }
     }
 
     // CCTV 영상 중계 — 원본이 HTTP(80포트)라 HTTPS 페이지에서 직접 재생할 수 없어 여기서 감싼다.
