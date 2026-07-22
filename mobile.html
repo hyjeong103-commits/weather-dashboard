@@ -433,45 +433,109 @@ async function renderBriefing(idx){
   loadTable(r); // 기준 지점에서 가까운 순으로 카드 정렬
 }
 
-// ── 기상특보 ──
-// 특보 구역(지점번호)별로 조회해 지역 카드에 배지로 표시
-const WARN_STN = {
-  '서울':109, '경기':109, '인천':109, '강원':105,
-  '충청':133, '전라':156, '경상':143, '제주':184,
-};
-function warnStn(name){
-  const g = name.replace(/📍|\s|\(.*\)/g,'');
-  for (const k in WARN_STN) if (g.includes(k)) return WARN_STN[k];
-  return 109;
+// ── 기상특보 ── 전국 특보현황(getPwnStatus)을 1회 조회, 발효 구역을 시도블록으로 파싱해 지역별 매칭
+const WARN_METRO = new Set(['서울','인천','대구','부산','광주','대전','울산','세종']);
+// 각 지역: prov(정규화 시도코드) + gun(시군 접두어). 광역시 블록은 prov만으로 매칭.
+const WARN_CFG = [
+  {prov:['서울'], gun:[]},
+  {prov:['서울'], gun:[]},
+  {prov:['인천'], gun:[]},
+  {prov:['경기'], gun:['파주','고양','의정부','양주','포천','연천','동두천','남양주','구리','가평','김포']},
+  {prov:['경기'], gun:['수원','용인','광주','성남','화성','평택','안성','이천','안산','시흥','오산','군포','의왕','과천','부천','광명','안양','하남','여주']},
+  {prov:['강원'], gun:['춘천','원주','홍천','횡성','영월','평창','정선','철원','화천','양구','인제']},
+  {prov:['강원'], gun:['강릉','동해','삼척','속초','고성','양양']},
+  {prov:['경북','대구'], gun:['구미','영천','경산','고령','성주','칠곡','상주','경주','포항','안동','의성','청송','영덕','예천','문경','영주','김천','청도','울진','영양','봉화','울릉']},
+  {prov:['경남','부산','울산'], gun:['양산','창원','김해','밀양','의령','함안','창녕','진주','산청','함양','거창','합천','통영','사천','거제','남해','하동']},
+  {prov:['전북'], gun:['전주','군산','익산','정읍','남원','김제','완주','진안','무주','장수','임실','순창','고창','부안']},
+  {prov:['전남','광주'], gun:['담양','화순','광양','곡성','완도','장성','보성','여수','순천','장흥','강진','영암','함평','목포','신안','진도','영광','나주','구례','고흥','해남','무안']},
+  {prov:['충북'], gun:['청주','보은','괴산','옥천','영동','충주','제천','단양','증평','진천','음성']},
+  {prov:['충남','대전','세종'], gun:['천안','공주','아산','논산','금산','부여','청양','예산','계룡','보령','홍성','서산','당진','태안','서천']},
+  {prov:['제주'], gun:['제주시']},
+  {prov:['제주'], gun:['서귀포']},
+];
+function provNorm(p){
+  const map=[['서울','서울'],['인천','인천'],['경기','경기'],['강원','강원'],['충청북','충북'],['충북','충북'],['충청남','충남'],['충남','충남'],['세종','세종'],['전라북','전북'],['전북','전북'],['전라남','전남'],['전남','전남'],['광주','광주'],['경상북','경북'],['경북','경북'],['대구','대구'],['경상남','경남'],['경남','경남'],['부산','부산'],['울산','울산'],['제주','제주'],['대전','대전']];
+  for(const [k,v] of map){ if(p.includes(k)) return v; }
+  return p;
 }
-let warnCache = {};
-async function loadWarn(stn){
-  if (warnCache[stn] !== undefined) return warnCache[stn];
+function splitTop(str){ // 괄호 깊이 0의 콤마로 분리
+  const out=[]; let d=0,c='';
+  for(const ch of str){
+    if(ch==='(') {d++;c+=ch;}
+    else if(ch===')'){d--;c+=ch;}
+    else if(ch===','&&d===0){ if(c.trim())out.push(c.trim()); c=''; }
+    else c+=ch;
+  }
+  if(c.trim())out.push(c.trim());
+  return out;
+}
+function parseWarnBlocks(content){
+  const blocks=[];
+  for(const it of splitTop(content)){
+    const m=it.match(/^([^(]+?)\s*\((.*)\)\s*$/);
+    if(m){
+      const prov=provNorm(m[1].trim());
+      if(WARN_METRO.has(prov)) blocks.push({prov, subs:[prov], metro:true});
+      else blocks.push({prov, subs:splitTop(m[2]), metro:false});
+    } else {
+      const prov=provNorm(it.trim());
+      blocks.push({prov, subs:[it.trim()], metro:WARN_METRO.has(prov)});
+    }
+  }
+  return blocks;
+}
+let warnByType = null; // {특보종류: [blocks]}
+async function loadWarnStatus(){
+  if (warnByType) return warnByType;
+  warnByType = {};
   try{
     const n = kstNow();
-    const to = ymd(n), from = ymd(addDays(n,-2));
-    const items = await api(`${API}?service=warn&pageNo=1&numOfRows=30&stnId=${stn}&fromTmFc=${from}&toTmFc=${to}`);
+    const to = ymd(n), from = ymd(addDays(n,-1));
+    const items = await api(`${API}?service=warn&pageNo=1&numOfRows=10&fromTmFc=${from}&toTmFc=${to}`);
     const arr = Array.isArray(items) ? items : (items ? [items] : []);
-    // 해제되지 않은 최신 특보만
-    const live = arr.filter(w => !(w.cancel === 'Y' || /해제/.test(w.title||'')));
-    warnCache[stn] = live.length ? live[live.length-1] : null;
-  }catch(e){ warnCache[stn] = null; }
-  return warnCache[stn];
+    if (arr.length){
+      const t6 = arr[arr.length-1].t6 || '';
+      t6.split(/\r?\n/).forEach(line=>{
+        const m = line.match(/^\s*o\s*([^:]+?)\s*:\s*(.+)$/);
+        if (m) warnByType[m[1].trim()] = parseWarnBlocks(m[2]);
+      });
+    }
+  }catch(e){}
+  return warnByType;
 }
-function warnLabel(w){
-  const t = (w.title || w.t1 || '').replace(/\[.*?\]/g,'').trim();
-  const m = t.match(/(폭염|호우|대설|강풍|풍랑|한파|건조|태풍|황사|해일)\s*(경보|주의보)/);
-  return m ? m[0].replace(/\s/g,'') : (t.slice(0, 10) || '특보');
+function matchWarnCfg(cfg, blocks){
+  for(const b of blocks){
+    if(cfg.any){ if(b.subs.some(s=>cfg.gun.some(g=>s.startsWith(g)))) return true; continue; }
+    if(!cfg.prov.includes(b.prov)) continue;
+    if(b.metro) return true;
+    if(cfg.gun.length===0) return true;
+    if(b.subs.some(s=>cfg.gun.some(g=>s.startsWith(g)))) return true;
+  }
+  return false;
+}
+function warnCfgByName(name){
+  const base = name.replace(/📍|\s/g,'');
+  for (let i=0;i<REGIONS.length;i++){
+    if (REGIONS[i].name.replace(/\s/g,'') === base) return WARN_CFG[i];
+  }
+  const metro = (base.match(/서울|인천|부산|대구|광주|대전|울산|세종/)||[])[0];
+  if (metro) return {prov:[provNorm(metro)], gun:[]};
+  const dist = (base.match(/([가-힣]{2,}?)(시|군|구)(?![가-힣])/)||[])[1];
+  return {any:true, prov:[], gun: dist?[dist]:[]};
 }
 async function paintWarn(list){
+  const byType = await loadWarnStatus();
+  const types = Object.keys(byType).sort((a,b)=> (/경보/.test(b)?1:0)-(/경보/.test(a)?1:0));
   for (let i=0;i<list.length;i++){
     const el = document.getElementById('wn'+i);
     if (!el) continue;
-    const w = await loadWarn(warnStn(list[i].name));
-    if (!w) continue;
-    const lb = warnLabel(w);
-    el.className = 'warn' + (/경보/.test(lb) ? ' lv2' : '');
-    el.textContent = lb;
+    const cfg = warnCfgByName(list[i].name);
+    let hit = null;
+    for (const t of types){ if (matchWarnCfg(cfg, byType[t])){ hit = t; break; } }
+    if (!hit){ el.className='warn'; el.textContent=''; el.style.display='none'; continue; }
+    el.style.display='';
+    el.className = 'warn' + (/경보/.test(hit) ? ' lv2' : '');
+    el.textContent = hit;
   }
 }
 
@@ -1117,6 +1181,17 @@ async function addPlace(lat, lon, name){
   }catch(e){ body.innerHTML = `<div class="err-inline">데이터를 불러오지 못했습니다 (${e.message})</div>`; }
 }
 loadAll();
+hitCounter();
+async function hitCounter(){
+  try{
+    const seen = sessionStorage.getItem('vseen');
+    const r = await fetch('/api/hit'+(seen?'?peek=1':''));
+    sessionStorage.setItem('vseen','1');
+    const j = await r.json();
+    const el = document.getElementById('vcount');
+    if (el && j && j.count!=null) el.textContent = '오늘 조회 '+j.count.toLocaleString()+'회';
+  }catch(e){}
+}
 </script>
 <div id="cctvModal" onclick="closeCctv()">
   <div class="cv-box" onclick="event.stopPropagation()">
@@ -1135,5 +1210,6 @@ loadAll();
     <div id="rmChart"></div>
   </div>
 </div>
+<div id="vcount" style="text-align:center;color:#9aa2ac;font-size:11px;padding:14px 0 20px"></div>
 </body>
 </html>

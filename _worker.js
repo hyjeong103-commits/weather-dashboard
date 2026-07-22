@@ -8,7 +8,7 @@ const ALLOWED = {
   vilage:  'VilageFcstInfoService_2.0/getVilageFcst',
   midLand: 'MidFcstInfoService/getMidLandFcst',
   midTa:   'MidFcstInfoService/getMidTa',
-  warn:    'WthrWrnInfoService/getWthrWrnList',   // 기상특보 목록
+  warn:    'WthrWrnInfoService/getPwnStatus',      // 기상특보 현황(발효 구역 포함)
 };
 const SAFE = ['pageNo','numOfRows','base_date','base_time','nx','ny','regId','tmFc',
               'fromTmFc','toTmFc','stnId'];
@@ -39,6 +39,24 @@ export default {
       } catch (e) {
         return json({ error: String(e) }, 502);
       }
+    }
+
+    // 조회수 카운터 (KV 네임스페이스 COUNTER 바인딩 시 동작, 없으면 null)
+    if (url.pathname === '/api/hit') {
+      const kv = env.COUNTER;
+      if (!kv) return json({ count: null }, 200);
+      const day = new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10); // KST 날짜
+      const key = 'v:' + day;
+      const peek = url.searchParams.get('peek') === '1';
+      let cur = parseInt((await kv.get(key)) || '0', 10);
+      if (!peek) {
+        cur += 1;
+        await kv.put(key, String(cur), { expirationTtl: 60 * 60 * 48 });
+      }
+      return new Response(JSON.stringify({ count: cur, day }), {
+        status: 200,
+        headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' },
+      });
     }
 
     // 정적 파일
