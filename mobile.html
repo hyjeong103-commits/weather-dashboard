@@ -427,12 +427,14 @@ async function renderBriefing(idx){
     const curH = kstNow().getHours();
     let nowT=null, nowHh=curH;
     for(let k=0;k<=curH;k++){ if(d.ht[curH-k]!=null){ nowT=d.ht[curH-k]; nowHh=curH-k; break; } }
-    const now = nowT!=null ? `🌡️ 지금 <b class="tmax">${nowT}°</b> ${he(nowHh)}` : '';
+    const nowPart = nowT!=null ? `지금 <b class="tmax">${nowT}°</b> · ` : '';
+    if (feel) feel = feel.replace('🌡️ ', '🌡️ '+nowPart);
+    else if (nowT!=null) feel = `🌡️ 지금 <b class="tmax">${nowT}°</b>`;
     box.style.display='';
     document.getElementById('briefLeft').innerHTML = `<div class="br-head">오늘 브리핑
         <select id="brSel" onchange="renderBriefing(+this.value)"><option value="-1" ${idx===-1?'selected':''}>📍 내 위치</option>${REGIONS.map((g,i)=>`<option value="${i}" ${i===idx?'selected':''}>${g.name}</option>`).join('')}</select>
         </div>
-      <div class="br-items">${[now,rain,feel,cmp,go,back].filter(Boolean).map(t=>`<div class="br-item">${t}</div>`).join('')}</div>`;
+      <div class="br-items">${[rain,feel,cmp,go,back].filter(Boolean).map(t=>`<div class="br-item">${t}</div>`).join('')}</div>`;
   }catch(e){ box.style.display='none'; console.error('briefing', e); }
   loadTable(r); // 기준 지점에서 가까운 순으로 카드 정렬
 }
