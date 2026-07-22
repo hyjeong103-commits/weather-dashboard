@@ -98,7 +98,7 @@ if (matchMedia('(max-width: 767px)').matches && !location.search.includes('pc'))
   .cmp-legend{font-size:12px;color:#777;margin-top:10px;line-height:1.6;}
   .brief{display:flex;gap:12px;align-items:flex-start;}
   #briefLeft{flex:1;min-width:0;}
-  .rain-map{width:132px;flex-shrink:0;}
+  .rain-map{width:140px;flex-shrink:0;}
   .rain-map svg{width:100%;height:auto;display:block;}
   .map-cap{font-size:10px;color:#2166ac;font-weight:700;margin-bottom:3px;text-align:center;}
   .sortbar{display:flex;align-items:center;gap:8px;margin:0 0 10px;flex-wrap:wrap;}
@@ -413,7 +413,7 @@ async function renderBriefing(idx){
     if (!d){ box.style.display='none'; return; }
     // 우산 알림
     let rain;
-    if (d.rt) rain = `☔ <b>${d.rt}</b> 비 예상${d.pcp>0?` (총 ${d.pcp}mm)`:''} — 우산 챙기세요`;
+    if (d.rt) rain = `☔ <b>${d.rt}</b> 비${d.pcp>0?` · ${d.pcp}mm`:''}<br><span style="color:#e65100">우산 챙기세요</span>`;
     else if (d.pop>=40) rain = `☂️ 강수확률 ${d.pop}% — 우산 챙기면 안심`;
     else rain = `☀️ 오늘 비 소식 없음 (강수확률 ${d.pop}%)`;
     // 체감온도 (더운 날만) / 아니면 최고·최저
@@ -516,7 +516,7 @@ function renderRainMap(){
   for(const m of KR_MAP){
     const reg=KR2REG[m.k]; let v=null,isMid=false;
     if(reg!=null && regionRain[reg]){ const c=regionRain[reg][mapDay]; if(c){ if(c.pcp!=null){v=c.pcp;} else {v=c.pop;isMid=true;} } }
-    paths+='<path d="'+m.d+'" fill="'+rainMapColor(v,isMid)+'" stroke="#fff" stroke-width="0.6"/>';
+    paths+='<path d="'+m.d+'" fill="'+rainMapColor(v,isMid)+'" stroke="#fff" stroke-width="0.6"'+(m.k[3]==='C'&&m.k[4]==='J'?' transform="translate(0,-30)"':'')+'/>';
   }
   for(const reg in REG_LABEL){
     const m=KMAP_BY_K[REG_LABEL[reg]]; if(!m) continue;
@@ -524,12 +524,13 @@ function renderRainMap(){
     let v=null,isMid=false;
     if(c.pcp!=null){v=c.pcp;} else {v=c.pop;isMid=true;}
     if(v==null||v<=0) continue;
-    const off=LABEL_OFF[m.k]||[0,0]; const tx=m.x+off[0], ty=m.y+3+off[1];
+    const off=LABEL_OFF[m.k]||[0,0]; const tx=m.x+off[0]; let ty=m.y+3+off[1]; if(m.k.slice(0,5)==='KR.CJ') ty-=30;
     const txt=isMid? v+'%' : v+'mm';
     labels+='<text x="'+tx+'" y="'+ty+'" font-size="8.5" text-anchor="middle" fill="#111" font-weight="700" stroke="#fff" stroke-width="1.6" paint-order="stroke">'+txt+'</text>';
   }
   const labs=['오늘','내일','D+2','D+3','D+4','D+5','D+6'];
-  box.innerHTML='<div class="map-cap">'+labs[mapDay]+' 강수량</div><svg viewBox="0 0 176 250" role="img" aria-label="지역별 강수량 지도">'+paths+labels+'</svg>';
+  const _dt=addDays(kstNow(),mapDay); const _md=(_dt.getMonth()+1)+'/'+_dt.getDate()+'('+WD[_dt.getDay()]+')';
+  box.innerHTML='<div class="map-cap">'+labs[mapDay]+' '+_md+'</div><svg viewBox="0 0 176 200" role="img" aria-label="지역별 강수량 지도">'+paths+labels+'</svg>';
 }
 
 // ── 강수량 정렬 ──
@@ -608,6 +609,9 @@ async function loadAll(){
 }
 async function loadTable(ref){
   const status = document.getElementById('status');
+  { const _sd=document.getElementById('sortDay'); if(_sd){ const _L=['오늘','내일','D+2','D+3','D+4','D+5','D+6'];
+    for(let _i=0;_i<_sd.options.length;_i++){ const _o=_sd.options[_i]; const _v=+_o.value;
+      if(_v>=0&&_v<=6){ const _d=addDays(kstNow(),_v); _o.textContent=_L[_v]+' ('+(_d.getMonth()+1)+'/'+_d.getDate()+')'; } } } }
   let list = orderedRegions(ref);
   // 내 위치(GPS)가 잡혔으면 맨 위에 '내 위치' 행 추가 — 오늘~D+3은 내 격자 정확값, D+4~는 가장 가까운 권역
   if (ref && ref.label){
