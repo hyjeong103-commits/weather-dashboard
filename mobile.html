@@ -12,12 +12,12 @@
   *{box-sizing:border-box;}
   body{margin:0;font-family:'Malgun Gothic','Apple SD Gothic Neo',sans-serif;background:var(--bg);color:#222;}
   header{position:sticky;top:0;z-index:10;background:#fff;border-bottom:1px solid var(--line);
-    padding:8px 10px;display:flex;align-items:center;justify-content:space-between;gap:6px;}
-  header h1{font-size:17px;color:var(--blue);margin:0;}
+    padding:5px 10px;display:flex;align-items:center;justify-content:space-between;gap:6px;}
+  header h1{font-size:16px;color:var(--blue);margin:0;}
   button.refresh{border:1px solid var(--blue);background:#fff;color:var(--blue);border-radius:14px;
-    padding:5px 12px;font-size:13px;cursor:pointer;}
-  .meta{font-size:11px;color:#999;padding:4px 10px 0;}
-  #status{font-size:11px;color:#999;padding:0 10px 2px;}
+    padding:4px 11px;font-size:12px;cursor:pointer;}
+  .meta{font-size:10.5px;color:#999;padding:3px 10px 0;}
+  #status{font-size:10.5px;color:#999;padding:0 10px 2px;}
   /* 여백 제거: 카드 대신 전체 폭 사용 */
   main{padding:0 0 14px;}
   .card{background:#fff;border:none;border-bottom:5px solid var(--bg);border-radius:0;margin:0;overflow:hidden;}
@@ -40,13 +40,13 @@
   .spark{width:100%;height:100%;display:block;}
   .err{color:#c33;font-size:13px;padding:10px;}
   .dim{color:#ccc;}
-  .brief{border:1px solid #c7d8ef;border-radius:10px;padding:10px 12px;margin:8px;background:#f4f8fd;}
+  .brief{border:1px solid #c7d8ef;border-radius:10px;padding:8px 10px;margin:6px 8px;background:#f4f8fd;}
   .br-head{font-weight:700;color:var(--blue);margin-bottom:7px;font-size:14px;}
   .br-head select{margin-left:6px;font-size:12px;padding:3px 6px;border:1px solid var(--line);border-radius:5px;}
   .br-items{display:flex;flex-direction:column;gap:6px;font-size:13.5px;line-height:1.4;}
   .br-loc{display:block;font-weight:400;font-size:11.5px;color:#666;margin-top:3px;}
   .br-item b{font-weight:700;}
-  .tabs{display:flex;gap:6px;margin:8px 8px 0;}
+  .tabs{display:flex;gap:6px;margin:5px 8px 0;}
   .tab{flex:1;border:1px solid var(--line);background:#fff;color:#555;border-radius:8px;padding:8px 0;font-size:13.5px;cursor:pointer;}
   .tab.active{background:var(--blue);color:#fff;border-color:var(--blue);font-weight:700;}
   .searchbar{display:flex;gap:6px;margin:8px;}
@@ -94,7 +94,7 @@
   .cmp-legend{font-size:11px;color:#888;margin-top:8px;line-height:1.6;}
   .brief{display:flex;gap:12px;align-items:flex-start;}
   #briefLeft{flex:1;min-width:0;}
-  .rain-map{width:140px;flex-shrink:0;}
+  .rain-map{width:168px;flex-shrink:0;}
   .rain-map svg{width:100%;height:auto;display:block;}
   .map-cap{font-size:10px;color:#2166ac;font-weight:700;margin-bottom:3px;text-align:center;}
   .sortbar{display:flex;align-items:center;gap:6px;margin:6px 8px 8px;flex-wrap:wrap;}
@@ -487,13 +487,19 @@ function rainMapColor(v,isMid){
   if(v<=0) return '#eef1f4'; if(v<3) return '#dceefa'; if(v<10) return '#a9d3ef'; if(v<25) return '#5fa8dd'; if(v<50) return '#2166ac'; return '#0d3f7a';
 }
 function setMapDay(d){ mapDay=d; renderRainMap(); }
+function scrollToRegion(reg){
+  const pos=curList.findIndex(r=>REGIONS.indexOf(r)===reg);
+  let el = pos>=0 ? document.getElementById('card'+pos) : null;
+  if(!el){ for(let i=0;i<curList.length;i++){ if(REGIONS.indexOf(curList[i])===reg){ el=document.getElementById('card'+i); break; } } }
+  if(el){ el.scrollIntoView({behavior:'smooth',block:'start'}); el.style.transition='background .3s'; el.style.background='#eef4fd'; setTimeout(()=>el.style.background='',1200); }
+}
 function renderRainMap(){
   const box=document.getElementById('briefMap'); if(!box) return;
   let paths='',labels='';
   for(const m of KR_MAP){
     const reg=KR2REG[m.k]; let v=null,isMid=false;
     if(reg!=null && regionRain[reg]){ const c=regionRain[reg][mapDay]; if(c){ if(c.pcp!=null){v=c.pcp;} else {v=c.pop;isMid=true;} } }
-    paths+='<path d="'+m.d+'" fill="'+rainMapColor(v,isMid)+'" stroke="#fff" stroke-width="0.6"'+(m.k[3]==='C'&&m.k[4]==='J'?' transform="translate(0,-30)"':'')+'/>';
+    paths+='<path d="'+m.d+'" fill="'+rainMapColor(v,isMid)+'" stroke="#fff" stroke-width="0.6"'+(m.k[3]==='C'&&m.k[4]==='J'?' transform="translate(0,-30)"':'')+(reg!=null?' style="cursor:pointer" onclick="scrollToRegion('+reg+')"':'')+'/>';
   }
   for(const reg in REG_LABEL){
     const m=KMAP_BY_K[REG_LABEL[reg]]; if(!m) continue;

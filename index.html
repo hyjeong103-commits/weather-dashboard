@@ -98,7 +98,7 @@ if (matchMedia('(max-width: 767px)').matches && !location.search.includes('pc'))
   .cmp-legend{font-size:12px;color:#777;margin-top:10px;line-height:1.6;}
   .brief{display:flex;gap:12px;align-items:flex-start;}
   #briefLeft{flex:1;min-width:0;}
-  .rain-map{width:140px;flex-shrink:0;}
+  .rain-map{width:168px;flex-shrink:0;}
   .rain-map svg{width:100%;height:auto;display:block;}
   .map-cap{font-size:10px;color:#2166ac;font-weight:700;margin-bottom:3px;text-align:center;}
   .sortbar{display:flex;align-items:center;gap:8px;margin:0 0 10px;flex-wrap:wrap;}
@@ -510,13 +510,20 @@ function rainMapColor(v,isMid){
   if(v<=0) return '#eef1f4'; if(v<3) return '#dceefa'; if(v<10) return '#a9d3ef'; if(v<25) return '#5fa8dd'; if(v<50) return '#2166ac'; return '#0d3f7a';
 }
 function setMapDay(d){ mapDay=d; renderRainMap(); }
+function scrollToRegion(reg){
+  let pos=-1; for(let i=0;i<curList.length;i++){ if(REGIONS.indexOf(curList[i])===reg){ pos=i; break; } }
+  if(pos<0) return;
+  const nm=document.getElementById('rn'+pos); const row=nm&&nm.closest('tr');
+  if(row){ row.scrollIntoView({behavior:'smooth',block:'center'});
+    document.querySelectorAll('#body tr[data-rg="'+pos+'"]').forEach(tr=>{ tr.style.transition='background .3s'; tr.style.background='#eef4fd'; setTimeout(()=>tr.style.background='',1200); }); }
+}
 function renderRainMap(){
   const box=document.getElementById('briefMap'); if(!box) return;
   let paths='',labels='';
   for(const m of KR_MAP){
     const reg=KR2REG[m.k]; let v=null,isMid=false;
     if(reg!=null && regionRain[reg]){ const c=regionRain[reg][mapDay]; if(c){ if(c.pcp!=null){v=c.pcp;} else {v=c.pop;isMid=true;} } }
-    paths+='<path d="'+m.d+'" fill="'+rainMapColor(v,isMid)+'" stroke="#fff" stroke-width="0.6"'+(m.k[3]==='C'&&m.k[4]==='J'?' transform="translate(0,-30)"':'')+'/>';
+    paths+='<path d="'+m.d+'" fill="'+rainMapColor(v,isMid)+'" stroke="#fff" stroke-width="0.6"'+(m.k[3]==='C'&&m.k[4]==='J'?' transform="translate(0,-30)"':'')+(reg!=null?' style="cursor:pointer" onclick="scrollToRegion('+reg+')"':'')+'/>';
   }
   for(const reg in REG_LABEL){
     const m=KMAP_BY_K[REG_LABEL[reg]]; if(!m) continue;
