@@ -96,6 +96,13 @@ if (matchMedia('(max-width: 767px)').matches && !location.search.includes('pc'))
   .agree-mid{color:#ef6c00;}
   .agree-lo{color:#c62828;}
   .cmp-legend{font-size:12px;color:#777;margin-top:10px;line-height:1.6;}
+  .brief{display:flex;gap:12px;align-items:flex-start;}
+  #briefLeft{flex:1;min-width:0;}
+  .rain-map{width:132px;flex-shrink:0;}
+  .rain-map svg{width:100%;height:auto;display:block;}
+  .map-days{display:flex;gap:2px;flex-wrap:wrap;margin-bottom:4px;}
+  .map-days span{font-size:9px;padding:1px 5px;border-radius:5px;border:0.5px solid var(--line);color:#888;cursor:pointer;}
+  .map-days span.on{background:#2166ac;color:#fff;border-color:#2166ac;font-weight:700;}
   .sortbar{display:flex;align-items:center;gap:8px;margin:0 0 10px;flex-wrap:wrap;}
   .sortbar .sl{font-size:12px;color:#888;}
   .sbtn{border:1px solid var(--line);background:#fff;color:#555;border-radius:14px;padding:5px 13px;font-size:12.5px;cursor:pointer;}
@@ -156,7 +163,7 @@ if (matchMedia('(max-width: 767px)').matches && !location.search.includes('pc'))
   <div id="places"></div>
 </div>
 <div id="viewAll">
-<div id="brief" class="brief" style="display:none"></div>
+<div id="brief" class="brief" style="display:none"><div id="briefLeft"></div><div id="briefMap" class="rain-map"></div></div>
 <div class="sortbar">
   <span class="sl">정렬</span>
   <button class="sbtn active" id="sortLoc" onclick="setSort('loc')">내 위치 순</button>
@@ -432,7 +439,7 @@ async function renderBriefing(idx){
     const cmu = (d.ht[8]!=null || d.ht[18]!=null)
       ? `🚌 출근 8시 ${d.ht[8]??'-'}° ${he(8)} · 퇴근 18시 ${d.ht[18]??'-'}° ${he(18)}` : '';
     box.style.display='';
-    box.innerHTML = `<div class="br-head">오늘 브리핑
+    document.getElementById('briefLeft').innerHTML = `<div class="br-head">오늘 브리핑
         <select id="brSel" onchange="renderBriefing(+this.value)"><option value="-1" ${idx===-1?'selected':''}>📍 내 위치</option>${REGIONS.map((g,i)=>`<option value="${i}" ${i===idx?'selected':''}>${g.name}</option>`).join('')}</select>
         ${idx===-1?`<span class="br-loc">${label}</span>`:''}</div>
       <div class="br-items">${[rain,feel,cmp,cmu].filter(Boolean).map(t=>`<div class="br-item">${t}</div>`).join('')}</div>`;
@@ -491,6 +498,29 @@ async function paintWarn(list){
     el.className = 'warn' + (/경보/.test(lb) ? ' lv2' : '');
     el.textContent = lb;
   }
+}
+
+const KR_MAP=[{k:"KR.GB_82",x:86.4,y:81.7,d:"M114.6,68.4L108.4,73.1L107.1,78.2L104.2,79.4L100.7,76.4L99.5,78.8L94.6,78.8L94.7,83.0L91.0,82.1L86.0,88.6L88.9,91.2L87.2,101.1L93.5,102.3L90.2,110.3L88.6,111.0L84.4,112.3L79.9,110.1L77.8,103.5L74.7,102.8L75.3,95.6L70.9,91.3L71.2,88.6L66.1,88.9L67.3,84.2L70.4,79.2L67.7,74.4L71.8,72.9L76.4,68.7L79.5,63.8L86.6,62.3L88.9,64.5L92.3,60.1L94.0,63.0L99.2,60.8L103.6,61.9L101.6,64.4L105.7,64.4Z"},{k:"KR.IN_50",x:48.3,y:49.8,d:"M49.6,53.4L46.0,53.3L45.6,46.1L48.9,45.9L52.1,50.6Z"},{k:"KR.KW_41",x:104.2,y:40.9,d:"M140.7,85.5L135.8,84.8L136.1,76.9L132.1,76.0L129.8,70.3L132.8,69.5L119.8,65.4L118.2,69.5L114.6,68.4L105.7,64.4L101.6,64.4L103.6,61.9L99.2,60.8L94.0,63.0L92.3,60.1L88.9,64.5L86.6,62.3L79.5,63.8L87.0,47.8L77.2,43.7L77.1,35.7L80.1,31.9L75.1,28.4L74.0,24.0L71.3,24.4L65.5,21.1L65.0,23.7L57.8,17.7L64.3,13.7L71.7,13.2L74.9,14.1L84.4,12.9L86.0,14.2L94.0,13.8L98.5,11.6L101.8,7.4L102.0,2.3L105.0,0.0L114.0,20.6L123.8,35.3L128.6,40.5L131.4,47.9L137.6,57.4L140.9,66.2L140.9,73.7L142.3,78.9Z"},{k:"KR.SO_47",x:59.2,y:46.5,d:"M62.9,46.0L65.3,45.7L63.9,49.9L56.3,51.2L52.0,45.9L54.6,45.6L59.8,40.6L62.0,40.4Z"},{k:"KR.KG_48",x:64.7,y:47.5,d:"M79.5,63.8L76.4,68.7L71.8,72.9L67.7,74.4L63.4,72.5L57.7,73.3L50.7,67.3L52.3,61.5L49.4,63.9L47.5,58.6L52.0,59.9L54.0,57.2L50.0,56.4L49.6,53.4L52.1,50.6L48.9,45.9L45.6,46.1L43.2,37.3L48.9,37.8L47.7,29.5L51.0,27.7L57.8,17.7L65.0,23.7L65.5,21.1L71.3,24.4L74.0,24.0L75.1,28.4L80.1,31.9L77.1,35.7L77.2,43.7L87.0,47.8ZM62.9,46.0L62.0,40.4L59.8,40.6L54.6,45.6L52.0,45.9L56.3,51.2L63.9,49.9L65.3,45.7Z"},{k:"KR.CB_124",x:64.4,y:123.9,d:"M79.9,110.1L84.4,112.3L88.6,111.0L89.8,116.0L82.8,122.3L80.2,131.1L82.2,136.8L79.8,141.3L75.7,139.0L73.5,140.7L63.3,141.0L60.2,135.0L58.3,136.9L54.5,133.6L50.6,138.7L44.5,140.3L45.0,136.5L40.0,137.4L41.9,131.0L47.4,128.1L42.6,128.9L41.0,126.3L46.5,120.6L51.9,120.0L48.9,118.0L52.4,116.8L45.9,115.9L42.9,112.5L50.4,111.7L52.7,109.3L54.2,107.5L61.2,105.8L62.8,109.0L69.3,106.2L73.6,111.8Z"},{k:"KR.KJ_144",x:56.5,y:144.1,d:"M58.5,142.9L57.8,146.5L53.0,143.1Z"},{k:"KR.GN_90",x:54.8,y:90.3,d:"M57.7,73.3L63.4,72.5L67.7,74.4L70.4,79.2L67.3,84.2L62.5,82.3L61.0,92.2L66.4,92.2L68.8,96.2L69.7,101.6L74.2,99.2L75.3,95.6L74.7,102.8L77.8,103.5L79.9,110.1L73.6,111.8L69.3,106.2L62.8,109.0L61.2,105.8L54.2,107.5L52.7,109.3L48.6,111.3L45.1,105.8L42.0,104.6L44.6,97.0L43.1,95.8L40.7,86.4L42.5,86.0L40.1,81.0L39.6,85.9L37.8,80.6L30.9,82.9L32.5,75.4L36.2,74.3L35.1,78.2L37.3,78.2L39.3,73.6L38.5,69.0L40.5,69.8L41.6,76.0L42.8,71.5L44.9,73.6L42.8,67.0L52.1,71.2L54.0,79.7L54.3,74.8Z"},{k:"KR.TJ_96",x:71.1,y:95.9,d:"M70.9,91.3L75.3,95.6L74.2,99.2L69.7,101.6L68.8,96.2L66.4,92.2Z"},{k:"KR.TG_116",x:113.8,y:116.2,d:"M117.7,117.6L115.9,120.1L111.7,120.9L108.9,118.5L112.2,111.3L117.9,112.6Z"},{k:"KR.KN_139",x:102.4,y:138.5,d:"M126.7,128.8L126.0,132.1L135.5,139.7L133.1,146.0L128.7,141.5L125.2,147.2L123.7,149.3L108.8,148.6L105.2,152.4L106.9,153.4L107.4,159.2L100.3,155.3L99.7,157.2L94.9,155.7L94.5,151.2L89.0,154.9L86.1,154.5L80.8,146.3L79.8,141.3L82.2,136.8L80.2,131.1L82.8,122.3L89.8,116.0L91.6,118.5L96.9,119.9L100.0,123.6L100.1,127.4L106.9,128.8L111.3,126.2L113.4,130.2L119.4,130.8L123.5,128.3Z"},{k:"KR.KJ_156",x:58.2,y:155.5,d:"M79.8,141.3L80.8,146.3L86.1,154.5L83.3,154.1L78.4,156.9L81.1,160.4L85.2,158.9L84.3,163.5L81.1,163.7L80.6,168.4L78.3,167.2L78.7,163.1L76.2,157.4L71.2,162.0L76.0,169.5L70.6,170.0L73.8,171.6L69.7,175.5L66.5,171.3L63.5,172.2L68.3,164.8L59.3,168.6L55.5,176.6L52.6,175.2L51.9,169.6L51.0,174.1L46.5,177.7L45.6,181.4L43.2,181.7L41.3,176.0L43.5,170.6L38.5,171.8L34.4,167.4L35.1,163.0L37.8,168.8L40.9,169.8L38.0,164.6L45.6,167.8L42.4,164.3L45.1,157.9L42.2,160.6L37.8,160.9L38.7,154.7L34.3,147.1L39.1,150.2L40.5,148.6L36.1,142.6L40.0,137.4L45.0,136.5L44.5,140.3L50.6,138.7L54.5,133.6L58.3,136.9L60.2,135.0L63.3,141.0L73.5,140.7L75.7,139.0ZM58.5,142.9L53.0,143.1L57.8,146.5Z"},{k:"KR.PU_146",x:128.4,y:146,d:"M133.1,146.0L130.5,146.5L125.2,150.9L125.2,147.2L128.7,141.5Z"},{k:"KR.UL_132",x:134.1,y:131.7,d:"M141.9,127.5L141.8,131.5L138.5,134.0L138.6,138.1L135.5,139.7L126.0,132.1L126.7,128.8L132.4,124.5L136.1,127.4Z"},{k:"KR.TG_100",x:116.5,y:100.1,d:"M140.7,85.5L141.5,90.6L139.6,97.0L139.3,102.9L141.0,111.5L145.1,107.8L141.9,127.5L136.1,127.4L132.4,124.5L126.7,128.8L123.5,128.3L119.4,130.8L113.4,130.2L111.3,126.2L106.9,128.8L100.1,127.4L100.0,123.6L96.9,119.9L91.6,118.5L89.8,116.0L88.6,111.0L90.2,110.3L93.5,102.3L87.2,101.1L88.9,91.2L86.0,88.6L91.0,82.1L94.7,83.0L94.6,78.8L99.5,78.8L100.7,76.4L104.2,79.4L107.1,78.2L108.4,73.1L114.6,68.4L118.2,69.5L119.8,65.4L132.8,69.5L129.8,70.3L132.1,76.0L136.1,76.9L135.8,84.8ZM117.7,117.6L117.9,112.6L112.2,111.3L108.9,118.5L111.7,120.9L115.9,120.1Z"},{k:"KR.CJ_219",x:43.9,y:218.5,d:"M57.2,214.8L53.6,221.6L34.9,226.0L31.1,223.2L31.9,219.3L35.7,215.3L41.6,213.1L52.0,211.3Z"},{k:"KR.SJ_88",x:65.2,y:88.4,d:"M67.3,84.2L66.1,88.9L71.2,88.6L70.9,91.3L66.4,92.2L61.0,92.2L62.5,82.3Z"}];
+const KR2REG={"KR.SO_47":0,"KR.KG_48":4,"KR.IN_50":2,"KR.KW_41":5,"KR.GB_82":11,"KR.CB_124":9,"KR.GN_90":12,"KR.TJ_96":12,"KR.SJ_88":12,"KR.KJ_144":10,"KR.KJ_156":10,"KR.TG_100":7,"KR.TG_116":7,"KR.KN_139":8,"KR.PU_146":8,"KR.UL_132":8,"KR.CJ_219":13};
+let mapDay=0;
+function rainMapColor(v,isMid){
+  if(v==null) return '#eef1f4';
+  if(isMid){ if(v<30)return '#eef1f4'; if(v<50)return '#dceefa'; if(v<70)return '#a9d3ef'; if(v<90)return '#5fa8dd'; return '#2166ac'; }
+  if(v<=0) return '#eef1f4'; if(v<3) return '#dceefa'; if(v<10) return '#a9d3ef'; if(v<25) return '#5fa8dd'; if(v<50) return '#2166ac'; return '#0d3f7a';
+}
+function setMapDay(d){ mapDay=d; renderRainMap(); }
+function renderRainMap(){
+  const box=document.getElementById('briefMap'); if(!box) return;
+  let paths='',labels='';
+  for(const m of KR_MAP){
+    const reg=KR2REG[m.k]; let v=null,isMid=false;
+    if(reg!=null && regionRain[reg]){ const c=regionRain[reg][mapDay]; if(c){ if(c.pcp!=null){v=c.pcp;} else {v=c.pop;isMid=true;} } }
+    paths+='<path d="'+m.d+'" fill="'+rainMapColor(v,isMid)+'" stroke="#fff" stroke-width="0.6"/>';
+    if(v!=null && v>0){ const dark=v>=(isMid?70:10); labels+='<text x="'+m.x+'" y="'+(m.y+3)+'" font-size="8.5" text-anchor="middle" fill="'+(dark?'#fff':'#0c447c')+'" font-weight="bold">'+(isMid?v+'%':v)+'</text>'; }
+  }
+  const labs=['오늘','내일','D+2','D+3','D+4','D+5','D+6'];
+  const btns=labs.map((t,i)=>'<span class="'+(i===mapDay?'on':'')+'" onclick="setMapDay('+i+')">'+t+'</span>').join('');
+  box.innerHTML='<div class="map-days">'+btns+'</div><svg viewBox="0 0 176 250" role="img" aria-label="지역별 강수량 지도">'+paths+labels+'</svg>';
 }
 
 // ── 강수량 정렬 ──
@@ -647,6 +677,7 @@ async function loadTable(ref){
     if (seq === tableSeq) status.textContent = `불러오는 중... (${++done}/${list.length})`;
   }));
   if (seq === tableSeq) status.textContent = `업데이트: ${kstNow().toTimeString().slice(0,5)} KST`;
+  if (seq === tableSeq) renderRainMap();
 }
 
 // ── 실시간 거리 영상 (YouTube 라이브캠) ──
