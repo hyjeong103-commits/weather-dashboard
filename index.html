@@ -100,9 +100,7 @@ if (matchMedia('(max-width: 767px)').matches && !location.search.includes('pc'))
   #briefLeft{flex:1;min-width:0;}
   .rain-map{width:132px;flex-shrink:0;}
   .rain-map svg{width:100%;height:auto;display:block;}
-  .map-days{display:flex;gap:2px;flex-wrap:wrap;margin-bottom:4px;}
-  .map-days span{font-size:9px;padding:1px 5px;border-radius:5px;border:0.5px solid var(--line);color:#888;cursor:pointer;}
-  .map-days span.on{background:#2166ac;color:#fff;border-color:#2166ac;font-weight:700;}
+  .map-cap{font-size:10px;color:#2166ac;font-weight:700;margin-bottom:3px;text-align:center;}
   .sortbar{display:flex;align-items:center;gap:8px;margin:0 0 10px;flex-wrap:wrap;}
   .sortbar .sl{font-size:12px;color:#888;}
   .sbtn{border:1px solid var(--line);background:#fff;color:#555;border-radius:14px;padding:5px 13px;font-size:12.5px;cursor:pointer;}
@@ -516,11 +514,10 @@ function renderRainMap(){
     const reg=KR2REG[m.k]; let v=null,isMid=false;
     if(reg!=null && regionRain[reg]){ const c=regionRain[reg][mapDay]; if(c){ if(c.pcp!=null){v=c.pcp;} else {v=c.pop;isMid=true;} } }
     paths+='<path d="'+m.d+'" fill="'+rainMapColor(v,isMid)+'" stroke="#fff" stroke-width="0.6"/>';
-    if(v!=null && v>0){ const dark=v>=(isMid?70:10); labels+='<text x="'+m.x+'" y="'+(m.y+3)+'" font-size="8.5" text-anchor="middle" fill="'+(dark?'#fff':'#0c447c')+'" font-weight="bold">'+(isMid?v+'%':v)+'</text>'; }
+    if(v!=null && v>0){ const off=LABEL_OFF[m.k]||[0,0]; const tx=m.x+off[0], ty=m.y+3+off[1]; const txt=isMid? v+'%' : v+'mm'; labels+='<text x="'+tx+'" y="'+ty+'" font-size="8.5" text-anchor="middle" fill="#111" font-weight="700" stroke="#fff" stroke-width="1.6" paint-order="stroke">'+txt+'</text>'; }
   }
   const labs=['오늘','내일','D+2','D+3','D+4','D+5','D+6'];
-  const btns=labs.map((t,i)=>'<span class="'+(i===mapDay?'on':'')+'" onclick="setMapDay('+i+')">'+t+'</span>').join('');
-  box.innerHTML='<div class="map-days">'+btns+'</div><svg viewBox="0 0 176 250" role="img" aria-label="지역별 강수량 지도">'+paths+labels+'</svg>';
+  box.innerHTML='<div class="map-cap">'+labs[mapDay]+' 강수량</div><svg viewBox="0 0 176 250" role="img" aria-label="지역별 강수량 지도">'+paths+labels+'</svg>';
 }
 
 // ── 강수량 정렬 ──
@@ -552,6 +549,7 @@ function applySort(){
   const tbody = document.getElementById('body');
   if (!tbody || !curList.length) return;
   const day = +document.getElementById('sortDay').value;
+  if (day !== 99){ mapDay = day; renderRainMap(); }
   const idx = curList.map((_,i)=>i);
   if (sortMode === 'rain'){
     idx.sort((a,b)=>{
