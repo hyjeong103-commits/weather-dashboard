@@ -437,11 +437,15 @@ async function renderBriefing(idx){
     const he = h => { const p=d.hp[h]||0, s=d.hs[h]||1; return p===3?EMOJI.snow : p>0?EMOJI.rain : s>=3?EMOJI.cloud:EMOJI.sun; };
     const go = d.ht[8]!=null ? `🚌 출근 8시 ${d.ht[8]}° ${he(8)}${d.hv[8]>0?' '+d.hv[8]+'mm':''}` : '';
     const back = d.ht[18]!=null ? `🏠 퇴근 18시 ${d.ht[18]}° ${he(18)}${d.hv[18]>0?' '+d.hv[18]+'mm':''}` : '';
+    const curH = kstNow().getHours();
+    let nowT=null, nowHh=curH;
+    for(let k=0;k<=curH;k++){ if(d.ht[curH-k]!=null){ nowT=d.ht[curH-k]; nowHh=curH-k; break; } }
+    const now = nowT!=null ? `🌡️ 지금 <b class="tmax">${nowT}°</b> ${he(nowHh)}` : '';
     box.style.display='';
     document.getElementById('briefLeft').innerHTML = `<div class="br-head">오늘 브리핑
         <select id="brSel" onchange="renderBriefing(+this.value)"><option value="-1" ${idx===-1?'selected':''}>📍 내 위치</option>${REGIONS.map((g,i)=>`<option value="${i}" ${i===idx?'selected':''}>${g.name}</option>`).join('')}</select>
         </div>
-      <div class="br-items">${[rain,feel,cmp,go,back].filter(Boolean).map(t=>`<div class="br-item">${t}</div>`).join('')}</div>`;
+      <div class="br-items">${[now,rain,feel,cmp,go,back].filter(Boolean).map(t=>`<div class="br-item">${t}</div>`).join('')}</div>`;
   }catch(e){ box.style.display='none'; console.error('briefing', e); }
   loadTable(r); // 기준 지점에서 가까운 순으로 표 정렬
 }
@@ -567,7 +571,7 @@ const KR_MAP=[{k:"KR.GB_82",x:86.4,y:81.7,d:"M114.6,68.4L108.4,73.1L107.1,78.2L1
 const KR2REG={"KR.SO_47":0,"KR.KG_48":4,"KR.IN_50":2,"KR.KW_41":5,"KR.GB_82":11,"KR.CB_124":9,"KR.GN_90":12,"KR.TJ_96":12,"KR.SJ_88":12,"KR.KJ_144":10,"KR.KJ_156":10,"KR.TG_100":7,"KR.TG_116":7,"KR.KN_139":8,"KR.PU_146":8,"KR.UL_132":8,"KR.CJ_219":13};
 const REG_LABEL={0:'KR.SO_47',2:'KR.IN_50',4:'KR.KG_48',5:'KR.KW_41',7:'KR.TG_100',8:'KR.KN_139',9:'KR.CB_124',10:'KR.KJ_156',11:'KR.GB_82',12:'KR.GN_90',13:'KR.CJ_219'};
 const KMAP_BY_K=Object.fromEntries(KR_MAP.map(m=>[m.k,m]));
-const LABEL_OFF={'KR.SO_47':[7,-10],'KR.IN_50':[-12,6],'KR.KG_48':[11,12]};
+const LABEL_OFF={'KR.SO_47':[7,-10],'KR.IN_50':[-5,4],'KR.KG_48':[11,12]};
 let mapDay=0;
 function rainMapColor(v,isMid){
   if(v==null) return '#ffffff';
@@ -602,7 +606,7 @@ function renderRainMap(){
   }
   const labs=['오늘','내일','D+2','D+3','D+4','D+5','D+6'];
   const _dt=addDays(kstNow(),mapDay); const _md=(_dt.getMonth()+1)+'/'+_dt.getDate()+'('+WD[_dt.getDay()]+')';
-  box.innerHTML='<div class="map-cap">'+labs[mapDay]+' '+_md+'</div><svg viewBox="27 -3 121 202" role="img" aria-label="지역별 강수량 지도">'+paths+labels+'</svg>';
+  box.innerHTML='<div class="map-cap">'+labs[mapDay]+' '+_md+'</div><svg viewBox="23 -3 125 202" role="img" aria-label="지역별 강수량 지도">'+paths+labels+'</svg>';
 }
 
 // ── 강수량 정렬 ──
