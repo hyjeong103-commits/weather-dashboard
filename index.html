@@ -430,7 +430,7 @@ async function renderBriefing(idx){
       const yd = vilY ? summarizeVilage(vilY)[yKey] : null;
       if (yd && yd.tmx!=null && d.tmx!=null){
         const diff = d.tmx - yd.tmx;
-        cmp = diff>=1 ? `📈 어제보다 <b class="tmax">${diff}°</b> 높음` : diff<=-1 ? `📉 어제보다 <b class="tmin">${-diff}°</b> 낮음` : `↔️ 어제와 비슷한 기온`;
+        cmp = diff>=1 ? `📈 어제 <b class="tmax">+${diff}°</b>` : diff<=-1 ? `📉 어제 <b class="tmin">${diff}°</b>` : `↔️ 어제와 비슷`;
       }
     }catch(e){}
     // 출퇴근 시간대
@@ -441,7 +441,7 @@ async function renderBriefing(idx){
     document.getElementById('briefLeft').innerHTML = `<div class="br-head">오늘 브리핑
         <select id="brSel" onchange="renderBriefing(+this.value)"><option value="-1" ${idx===-1?'selected':''}>📍 내 위치</option>${REGIONS.map((g,i)=>`<option value="${i}" ${i===idx?'selected':''}>${g.name}</option>`).join('')}</select>
         </div>
-      <div class="br-items">${[rain,feel,cmp,cmu].filter(Boolean).map(t=>`<div class="br-item">${t}</div>`).join('')}</div>`;
+      <div class="br-items">${[rain,[feel,cmp].filter(Boolean).join(' · '),cmu].filter(Boolean).map(t=>`<div class="br-item">${t}</div>`).join('')}</div>`;
   }catch(e){ box.style.display='none'; console.error('briefing', e); }
   loadTable(r); // 기준 지점에서 가까운 순으로 표 정렬
 }
