@@ -41,9 +41,9 @@
   .err{color:#c33;font-size:13px;padding:10px;}
   .dim{color:#ccc;}
   .brief{border:1px solid #c7d8ef;border-radius:10px;padding:8px 10px;margin:6px 8px;background:#f4f8fd;}
-  .br-head{font-weight:700;color:var(--blue);margin-bottom:7px;font-size:14px;}
+  .br-head{font-weight:700;color:var(--blue);margin-bottom:4px;font-size:13px;}
   .br-head select{margin-left:6px;font-size:12px;padding:3px 6px;border:1px solid var(--line);border-radius:5px;}
-  .br-items{display:flex;flex-direction:column;gap:6px;font-size:13.5px;line-height:1.4;}
+  .br-items{display:flex;flex-direction:column;gap:3px;font-size:12.5px;line-height:1.3;}
   .br-loc{display:block;font-weight:400;font-size:11.5px;color:#666;margin-top:3px;}
   .br-item b{font-weight:700;}
   .tabs{display:flex;gap:6px;margin:5px 8px 0;}
@@ -94,7 +94,7 @@
   .cmp-legend{font-size:11px;color:#888;margin-top:8px;line-height:1.6;}
   .brief{display:flex;gap:12px;align-items:flex-start;}
   #briefLeft{flex:1;min-width:0;}
-  .rain-map{width:168px;flex-shrink:0;}
+  .rain-map{width:120px;flex-shrink:0;}
   .rain-map svg{width:100%;height:auto;display:block;}
   .map-cap{font-size:10px;color:#2166ac;font-weight:700;margin-bottom:3px;text-align:center;}
   .sortbar{display:flex;align-items:center;gap:6px;margin:6px 8px 8px;flex-wrap:wrap;}
@@ -427,7 +427,7 @@ async function renderBriefing(idx){
     box.style.display='';
     document.getElementById('briefLeft').innerHTML = `<div class="br-head">오늘 브리핑
         <select id="brSel" onchange="renderBriefing(+this.value)"><option value="-1" ${idx===-1?'selected':''}>📍 내 위치</option>${REGIONS.map((g,i)=>`<option value="${i}" ${i===idx?'selected':''}>${g.name}</option>`).join('')}</select>
-        ${idx===-1?`<span class="br-loc">${label}</span>`:''}</div>
+        </div>
       <div class="br-items">${[rain,feel,cmp,cmu].filter(Boolean).map(t=>`<div class="br-item">${t}</div>`).join('')}</div>`;
   }catch(e){ box.style.display='none'; console.error('briefing', e); }
   loadTable(r); // 기준 지점에서 가까운 순으로 카드 정렬
@@ -513,7 +513,7 @@ function renderRainMap(){
   }
   const labs=['오늘','내일','D+2','D+3','D+4','D+5','D+6'];
   const _dt=addDays(kstNow(),mapDay); const _md=(_dt.getMonth()+1)+'/'+_dt.getDate()+'('+WD[_dt.getDay()]+')';
-  box.innerHTML='<div class="map-cap">'+labs[mapDay]+' '+_md+'</div><svg viewBox="0 0 176 200" role="img" aria-label="지역별 강수량 지도">'+paths+labels+'</svg>';
+  box.innerHTML='<div class="map-cap">'+labs[mapDay]+' '+_md+'</div><svg viewBox="27 -3 121 202" role="img" aria-label="지역별 강수량 지도">'+paths+labels+'</svg>';
 }
 
 // ── 강수량 정렬 ──
