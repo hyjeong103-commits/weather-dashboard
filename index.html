@@ -31,6 +31,7 @@ if (matchMedia('(max-width: 767px)').matches && !location.search.includes('pc'))
   td.label{color:#555;}
   tbody tr.shade td{background:var(--shade);}
   tbody tr.region-row td{border-top:2px solid #9a9a9a;}
+  tr.region-row{scroll-margin-top:60px;}
   td.wx{font-size:20px;}
   td.wx .rt{display:block;font-size:10px;color:var(--min);font-weight:600;line-height:1.3;}
   td.sp{padding:2px 8px;height:44px;}
@@ -435,7 +436,7 @@ async function renderBriefing(idx){
     // 출퇴근 시간대
     const he = h => { const p=d.hp[h]||0, s=d.hs[h]||1; return p===3?EMOJI.snow : p>0?EMOJI.rain : s>=3?EMOJI.cloud:EMOJI.sun; };
     const cmu = (d.ht[8]!=null || d.ht[18]!=null)
-      ? `🚌 출근 8시 ${d.ht[8]??'-'}° ${he(8)}<br>🏠 퇴근 18시 ${d.ht[18]??'-'}° ${he(18)}` : '';
+      ? `🚌 출근 8시 ${d.ht[8]??'-'}° ${he(8)}${d.hv[8]>0?' '+d.hv[8]+'mm':''}<br>🏠 퇴근 18시 ${d.ht[18]??'-'}° ${he(18)}${d.hv[18]>0?' '+d.hv[18]+'mm':''}` : '';
     box.style.display='';
     document.getElementById('briefLeft').innerHTML = `<div class="br-head">오늘 브리핑
         <select id="brSel" onchange="renderBriefing(+this.value)"><option value="-1" ${idx===-1?'selected':''}>📍 내 위치</option>${REGIONS.map((g,i)=>`<option value="${i}" ${i===idx?'selected':''}>${g.name}</option>`).join('')}</select>
@@ -505,16 +506,16 @@ const KMAP_BY_K=Object.fromEntries(KR_MAP.map(m=>[m.k,m]));
 const LABEL_OFF={'KR.SO_47':[7,-10],'KR.IN_50':[-12,6],'KR.KG_48':[11,12]};
 let mapDay=0;
 function rainMapColor(v,isMid){
-  if(v==null) return '#eef1f4';
-  if(isMid){ if(v<30)return '#eef1f4'; if(v<50)return '#dceefa'; if(v<70)return '#a9d3ef'; if(v<90)return '#5fa8dd'; return '#2166ac'; }
-  if(v<=0) return '#eef1f4'; if(v<3) return '#dceefa'; if(v<10) return '#a9d3ef'; if(v<25) return '#5fa8dd'; if(v<50) return '#2166ac'; return '#0d3f7a';
+  if(v==null) return '#ffffff';
+  if(isMid){ if(v<30)return '#ffffff'; if(v<50)return '#dceefa'; if(v<70)return '#a9d3ef'; if(v<90)return '#5fa8dd'; return '#2166ac'; }
+  if(v<=0) return '#ffffff'; if(v<3) return '#dceefa'; if(v<10) return '#a9d3ef'; if(v<25) return '#5fa8dd'; if(v<50) return '#2166ac'; return '#0d3f7a';
 }
 function setMapDay(d){ mapDay=d; renderRainMap(); }
 function scrollToRegion(reg){
   let pos=-1; for(let i=0;i<curList.length;i++){ if(REGIONS.indexOf(curList[i])===reg){ pos=i; break; } }
   if(pos<0) return;
   const nm=document.getElementById('rn'+pos); const row=nm&&nm.closest('tr');
-  if(row){ row.scrollIntoView({behavior:'smooth',block:'center'});
+  if(row){ row.scrollIntoView({behavior:'smooth',block:'start'});
     document.querySelectorAll('#body tr[data-rg="'+pos+'"]').forEach(tr=>{ tr.style.transition='background .3s'; tr.style.background='#eef4fd'; setTimeout(()=>tr.style.background='',1200); }); }
 }
 function renderRainMap(){
@@ -523,7 +524,7 @@ function renderRainMap(){
   for(const m of KR_MAP){
     const reg=KR2REG[m.k]; let v=null,isMid=false;
     if(reg!=null && regionRain[reg]){ const c=regionRain[reg][mapDay]; if(c){ if(c.pcp!=null){v=c.pcp;} else {v=c.pop;isMid=true;} } }
-    paths+='<path d="'+m.d+'" fill="'+rainMapColor(v,isMid)+'" stroke="#fff" stroke-width="0.6"'+(m.k[3]==='C'&&m.k[4]==='J'?' transform="translate(0,-30)"':'')+(reg!=null?' style="cursor:pointer" onclick="scrollToRegion('+reg+')"':'')+'/>';
+    paths+='<path d="'+m.d+'" fill="'+rainMapColor(v,isMid)+'" stroke="#9aa8b4" stroke-width="0.6"'+(m.k[3]==='C'&&m.k[4]==='J'?' transform="translate(0,-30)"':'')+(reg!=null?' style="cursor:pointer" onclick="scrollToRegion('+reg+')"':'')+'/>';
   }
   for(const reg in REG_LABEL){
     const m=KMAP_BY_K[REG_LABEL[reg]]; if(!m) continue;
