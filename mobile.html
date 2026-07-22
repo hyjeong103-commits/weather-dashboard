@@ -43,7 +43,7 @@
   .brief{border:1px solid #c7d8ef;border-radius:10px;padding:7px 10px;margin:5px 8px;background:#f4f8fd;}
   .br-head{font-weight:700;color:var(--blue);margin-bottom:7px;font-size:14px;}
   .br-head select{margin-left:6px;font-size:12px;padding:3px 6px;border:1px solid var(--line);border-radius:5px;}
-  .br-items{display:flex;flex-direction:column;gap:6px;font-size:13.5px;line-height:1.4;}
+  .br-items{display:flex;flex-direction:column;gap:7px;font-size:13.5px;line-height:1.35;}
   .br-loc{display:block;font-weight:400;font-size:11.5px;color:#666;margin-top:3px;}
   .br-item b{font-weight:700;}
   .tabs{display:flex;gap:6px;margin:4px 8px 0;}
@@ -404,7 +404,7 @@ async function renderBriefing(idx){
     const d = summarizeVilage(mergeVilage(vilD, vilL))[tKey];
     if (!d){ box.style.display='none'; return; }
     let rain;
-    if (d.rt) rain = `☔ <b>${d.rt}</b> 비${d.pcp>0?` · ${d.pcp}mm`:''}<br><span style="color:#e65100">우산 챙기세요</span>`;
+    if (d.rt) rain = `☔ <b>${d.rt}</b> 비${d.pcp>0?` · ${d.pcp}mm`:''}`;
     else if (d.pop>=40) rain = `☂️ 강수확률 ${d.pop}% — 우산 챙기면 안심`;
     else rain = `☀️ 오늘 비 소식 없음 (강수확률 ${d.pop}%)`;
     let feel = '';
@@ -418,17 +418,17 @@ async function renderBriefing(idx){
       const yd = vilY ? summarizeVilage(vilY)[yKey] : null;
       if (yd && yd.tmx!=null && d.tmx!=null){
         const diff = d.tmx - yd.tmx;
-        cmp = diff>=1 ? `📈 어제 <b class="tmax">+${diff}°</b>` : diff<=-1 ? `📉 어제 <b class="tmin">${diff}°</b>` : `↔️ 어제와 비슷`;
+        cmp = diff>=1 ? `📈 어제보다 <b class="tmax">${diff}°</b> 높음` : diff<=-1 ? `📉 어제보다 <b class="tmin">${-diff}°</b> 낮음` : `↔️ 어제와 비슷한 기온`;
       }
     }catch(e){}
     const he = h => { const p=d.hp[h]||0, s=d.hs[h]||1; return p===3?EMOJI.snow : p>0?EMOJI.rain : s>=3?EMOJI.cloud:EMOJI.sun; };
-    const cmu = (d.ht[8]!=null || d.ht[18]!=null)
-      ? `🚌 출근 8시 ${d.ht[8]??'-'}° ${he(8)}${d.hv[8]>0?' '+d.hv[8]+'mm':''}<br>🏠 퇴근 18시 ${d.ht[18]??'-'}° ${he(18)}${d.hv[18]>0?' '+d.hv[18]+'mm':''}` : '';
+    const go = d.ht[8]!=null ? `🚌 출근 8시 ${d.ht[8]}° ${he(8)}${d.hv[8]>0?' '+d.hv[8]+'mm':''}` : '';
+    const back = d.ht[18]!=null ? `🏠 퇴근 18시 ${d.ht[18]}° ${he(18)}${d.hv[18]>0?' '+d.hv[18]+'mm':''}` : '';
     box.style.display='';
     document.getElementById('briefLeft').innerHTML = `<div class="br-head">오늘 브리핑
         <select id="brSel" onchange="renderBriefing(+this.value)"><option value="-1" ${idx===-1?'selected':''}>📍 내 위치</option>${REGIONS.map((g,i)=>`<option value="${i}" ${i===idx?'selected':''}>${g.name}</option>`).join('')}</select>
         </div>
-      <div class="br-items">${[rain,[feel,cmp].filter(Boolean).join(' · '),cmu].filter(Boolean).map(t=>`<div class="br-item">${t}</div>`).join('')}</div>`;
+      <div class="br-items">${[rain,feel,cmp,go,back].filter(Boolean).map(t=>`<div class="br-item">${t}</div>`).join('')}</div>`;
   }catch(e){ box.style.display='none'; console.error('briefing', e); }
   loadTable(r); // 기준 지점에서 가까운 순으로 카드 정렬
 }

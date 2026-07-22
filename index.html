@@ -414,7 +414,7 @@ async function renderBriefing(idx){
     if (!d){ box.style.display='none'; return; }
     // 우산 알림
     let rain;
-    if (d.rt) rain = `☔ <b>${d.rt}</b> 비${d.pcp>0?` · ${d.pcp}mm`:''}<br><span style="color:#e65100">우산 챙기세요</span>`;
+    if (d.rt) rain = `☔ <b>${d.rt}</b> 비${d.pcp>0?` · ${d.pcp}mm`:''}`;
     else if (d.pop>=40) rain = `☂️ 강수확률 ${d.pop}% — 우산 챙기면 안심`;
     else rain = `☀️ 오늘 비 소식 없음 (강수확률 ${d.pop}%)`;
     // 체감온도 (더운 날만) / 아니면 최고·최저
@@ -430,18 +430,18 @@ async function renderBriefing(idx){
       const yd = vilY ? summarizeVilage(vilY)[yKey] : null;
       if (yd && yd.tmx!=null && d.tmx!=null){
         const diff = d.tmx - yd.tmx;
-        cmp = diff>=1 ? `📈 어제 <b class="tmax">+${diff}°</b>` : diff<=-1 ? `📉 어제 <b class="tmin">${diff}°</b>` : `↔️ 어제와 비슷`;
+        cmp = diff>=1 ? `📈 어제보다 <b class="tmax">${diff}°</b> 높음` : diff<=-1 ? `📉 어제보다 <b class="tmin">${-diff}°</b> 낮음` : `↔️ 어제와 비슷한 기온`;
       }
     }catch(e){}
     // 출퇴근 시간대
     const he = h => { const p=d.hp[h]||0, s=d.hs[h]||1; return p===3?EMOJI.snow : p>0?EMOJI.rain : s>=3?EMOJI.cloud:EMOJI.sun; };
-    const cmu = (d.ht[8]!=null || d.ht[18]!=null)
-      ? `🚌 출근 8시 ${d.ht[8]??'-'}° ${he(8)}${d.hv[8]>0?' '+d.hv[8]+'mm':''}<br>🏠 퇴근 18시 ${d.ht[18]??'-'}° ${he(18)}${d.hv[18]>0?' '+d.hv[18]+'mm':''}` : '';
+    const go = d.ht[8]!=null ? `🚌 출근 8시 ${d.ht[8]}° ${he(8)}${d.hv[8]>0?' '+d.hv[8]+'mm':''}` : '';
+    const back = d.ht[18]!=null ? `🏠 퇴근 18시 ${d.ht[18]}° ${he(18)}${d.hv[18]>0?' '+d.hv[18]+'mm':''}` : '';
     box.style.display='';
     document.getElementById('briefLeft').innerHTML = `<div class="br-head">오늘 브리핑
         <select id="brSel" onchange="renderBriefing(+this.value)"><option value="-1" ${idx===-1?'selected':''}>📍 내 위치</option>${REGIONS.map((g,i)=>`<option value="${i}" ${i===idx?'selected':''}>${g.name}</option>`).join('')}</select>
         </div>
-      <div class="br-items">${[rain,[feel,cmp].filter(Boolean).join(' · '),cmu].filter(Boolean).map(t=>`<div class="br-item">${t}</div>`).join('')}</div>`;
+      <div class="br-items">${[rain,feel,cmp,go,back].filter(Boolean).map(t=>`<div class="br-item">${t}</div>`).join('')}</div>`;
   }catch(e){ box.style.display='none'; console.error('briefing', e); }
   loadTable(r); // 기준 지점에서 가까운 순으로 표 정렬
 }
