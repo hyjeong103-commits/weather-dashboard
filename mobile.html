@@ -3,6 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <title>전국 주간 날씨 (모바일)</title>
 <style>
   :root{
@@ -47,6 +49,18 @@
   .br-loc{display:block;font-weight:400;font-size:11.5px;color:#666;margin-top:3px;}
   .br-item b{font-weight:700;}
   .br-sub{font-size:11.5px;opacity:.82;}
+  .br-summary{font-size:13px;font-weight:700;color:var(--blue);line-height:1.4;padding-bottom:2px;}
+  body.dark .br-summary{color:#9cc2ef;}
+  .radar-ctl{display:flex;align-items:center;gap:8px;margin:8px;}
+  .radar-time{font-size:12px;color:#555;min-width:80px;text-align:right;font-weight:700;}
+  body.dark .radar-time{color:#b7bcc4;}
+  .radar-msg{font-size:12px;color:#c33;padding:0 10px;}
+  .radar-legend{font-size:11px;color:#888;padding:6px 10px;display:flex;align-items:center;gap:3px;flex-wrap:wrap;}
+  .radar-legend .lg{display:inline-block;width:16px;height:10px;border-radius:2px;}
+  .lg1{background:#5ab4e6}.lg2{background:#f0c020}.lg3{background:#e2402f}.lg4{background:#d63ad6}
+  #radarMap{height:68vh;width:100%;background:#dde3ea;}
+  body.dark #radarMap{background:#0f1319;}
+  .leaflet-container{font:inherit;}
   .tabs{display:flex;gap:6px;margin:4px 8px 0;}
   .tab{flex:1;border:1px solid var(--line);background:#fff;color:#555;border-radius:8px;padding:8px 0;font-size:13.5px;cursor:pointer;}
   .tab.active{background:var(--blue);color:#fff;border-color:var(--blue);font-weight:700;}
@@ -184,6 +198,7 @@
   <button class="tab active" id="tabAll" onclick="showTab('all')">전국 요약</button>
   <button class="tab" id="tabSearch" onclick="showTab('search')">지역 검색</button>
   <button class="tab" id="tabCompare" onclick="showTab('compare')">모델 비교</button>
+  <button class="tab" id="tabRadar" onclick="showTab('radar')">강수 레이더</button>
 </div>
 <div id="viewCompare" style="display:none">
   <div class="cmp-bar">기준 지역 <select id="cmpSel" onchange="cmpPlace=null; renderCompare(+this.value)"></select></div>
@@ -198,6 +213,16 @@
   </div>
   <div id="cand"></div>
   <div id="places"></div>
+</div>
+<div id="viewRadar" style="display:none">
+  <div class="radar-ctl">
+    <button class="sbtn" id="radarPlay" onclick="toggleRadarPlay()">⏸ 일시정지</button>
+    <input type="range" id="radarSlider" min="0" max="0" value="0" style="flex:1">
+    <span id="radarTime" class="radar-time"></span>
+  </div>
+  <div id="radarMap"></div>
+  <div id="radarMsg" class="radar-msg"></div>
+  <div class="radar-legend">약함 <span class="lg lg1"></span><span class="lg lg2"></span><span class="lg lg3"></span><span class="lg lg4"></span> 강함 · 자료: RainViewer</div>
 </div>
 <div id="viewAll">
 <div id="brief" class="brief" style="display:none"><div id="briefLeft"></div><div id="briefMap" class="rain-map"></div></div>
@@ -458,6 +483,19 @@ function useMyLocation(){
   });
 }
 let briefIdx = -1; // 기본: 내 위치 (권한 거부/실패 시 서울 북부)
+function hourWordK(h){ h=((h%24)+24)%24; if(h===0) return '자정'; if(h<6) return '새벽 '+h+'시'; if(h<12) return '오전 '+h+'시'; if(h===12) return '낮 12시'; if(h<18) return '오후 '+(h-12)+'시'; return '밤 '+(h-12)+'시'; }
+function tempMoodK(t){ if(t==null) return ''; return t>=33?'몹시 무더워요':t>=30?'무더워요':t>=27?'더워요':t>=23?'포근해요':t>=17?'선선해요':t>=9?'쌀쌀해요':t>=1?'추워요':'몹시 추워요'; }
+function briefSummary(d, dayOff){
+  const dw = dayOff?'내일은':'오늘은';
+  let start=-1,end=-1;
+  for(let h=0;h<24;h++){ const r=(d.hp&&d.hp[h]>0)||(d.hv&&d.hv[h]>0); if(r){ if(start<0)start=h; end=h; } }
+  const snow = d.hp && d.hp.some(p=>p===3);
+  let lead, emo;
+  if(start>=0){ emo=snow?'🌨️':'🌧️'; lead=`${dw} ${hourWordK(start)}부터 ${hourWordK(end+1)}까지 ${snow?'눈':'비'}가 와요`; }
+  else { const sky=(d.hs&&(d.hs[13]||d.hs[12]))||1; if(sky>=3){emo='☁️';lead=`${dw} 대체로 흐려요`;} else if(sky===2){emo='⛅';lead=`${dw} 구름이 조금 있어요`;} else {emo='☀️';lead=`${dw} 대체로 맑아요`;} }
+  const tail = d.tmx!=null ? ` 낮 최고 ${d.tmx}도로 ${tempMoodK(d.tmx)}.` : '.';
+  return `${emo} ${lead},${tail}`;
+}
 function pm10Grade(v){ return v<=30?['좋음','😊']:v<=80?['보통','🙂']:v<=150?['나쁨','😷']:['매우나쁨','🤢']; }
 function pm25Grade(v){ return v<=15?['좋음','😊']:v<=35?['보통','🙂']:v<=75?['나쁨','😷']:['매우나쁨','🤢']; }
 function uvGrade(v){ return v<=2?'낮음':v<=5?'보통':v<=7?'높음':v<=10?'매우높음':'위험'; }
@@ -536,7 +574,7 @@ async function renderBriefing(idx){
     document.getElementById('briefLeft').innerHTML = `<div class="br-head">${dayWord} 브리핑
         <select id="brSel" onchange="renderBriefing(+this.value)"><option value="-1" ${idx===-1?'selected':''}>📍 내 위치</option>${REGIONS.map((g,i)=>`<option value="${i}" ${i===idx?'selected':''}>${g.name}</option>`).join('')}</select>
         </div>
-      <div class="br-items">${[[rain,''],[feel,''],[cmp,''],[dust,' br-sub'],[uv,' br-sub'],[go,''],[back,'']].filter(x=>x[0]).map(x=>`<div class="br-item${x[1]}">${x[0]}</div>`).join('')}</div>`;
+      <div class="br-items">${[[briefSummary(d,dayOff),' br-summary'],[rain,''],[feel,''],[cmp,''],[dust,' br-sub'],[uv,' br-sub'],[go,''],[back,'']].filter(x=>x[0]).map(x=>`<div class="br-item${x[1]}">${x[0]}</div>`).join('')}</div>`;
   }catch(e){ box.style.display='none'; console.error('briefing', e); }
   loadTable(r); // 기준 지점에서 가까운 순으로 카드 정렬
 }
@@ -1001,13 +1039,56 @@ function bigRainChart(hv, hq){
 
 // ── 탭 전환 ──
 function showTab(t){
-  const views = {all:'viewAll', search:'viewSearch', compare:'viewCompare'};
+  const views = {all:'viewAll', search:'viewSearch', compare:'viewCompare', radar:'viewRadar'};
   for (const k in views) document.getElementById(views[k]).style.display = (k===t) ? '' : 'none';
   document.getElementById('tabAll').classList.toggle('active', t==='all');
   document.getElementById('tabSearch').classList.toggle('active', t==='search');
   document.getElementById('tabCompare').classList.toggle('active', t==='compare');
+  document.getElementById('tabRadar').classList.toggle('active', t==='radar');
+  stopRadarAnim();
   if (t==='compare' && !cmpInit){ cmpInit = true; initCompare(); }
+  if (t==='radar'){ if(!radarInit){ radarInit=true; initRadar(); } else { setTimeout(()=>{ if(radarMap){ radarMap.invalidateSize(); if(radarPlaying) startRadarAnim(); } },60); } }
 }
+// ── 강수 레이더 (RainViewer + Leaflet) ──
+var radarMap=null, radarBase=null, radarLayers=[], radarFrames=[], radarHost='', radarIdx=0, radarTimer=null, radarPlaying=true, radarInit=false, radarNowStart=0;
+function fmtRadarTime(t){ return new Date(t*1000).toLocaleTimeString('ko-KR',{timeZone:'Asia/Seoul',hour:'2-digit',minute:'2-digit',hour12:false}); }
+function initRadar(){
+  if(typeof L==='undefined'){ document.getElementById('radarMsg').textContent='지도 라이브러리를 불러오지 못했습니다.'; return; }
+  radarMap = L.map('radarMap',{zoomControl:true, attributionControl:true, minZoom:5, maxZoom:11}).setView([36.4,127.8],6);
+  const dark=document.body.classList.contains('dark');
+  radarBase = L.tileLayer(`https://{s}.basemaps.cartocdn.com/${dark?'dark_all':'light_all'}/{z}/{x}/{y}{r}.png`,{subdomains:'abcd',maxZoom:12,attribution:'© OpenStreetMap © CARTO'}).addTo(radarMap);
+  loadRadarFrames();
+}
+async function loadRadarFrames(){
+  try{
+    const j = await fetch('https://api.rainviewer.com/public/weather-maps.json').then(r=>r.json());
+    radarHost=j.host||'https://tilecache.rainviewer.com';
+    const past=(j.radar&&j.radar.past)||[], now=(j.radar&&j.radar.nowcast)||[];
+    radarFrames=[...past, ...now]; radarNowStart=past.length;
+    radarLayers.forEach(l=>radarMap.removeLayer(l)); radarLayers=[];
+    radarFrames.forEach(f=>{ const l=L.tileLayer(`${radarHost}${f.path}/256/{z}/{x}/{y}/4/1_1.png`,{opacity:0,maxZoom:12,zIndex:5}); l.addTo(radarMap); radarLayers.push(l); });
+    if(!radarFrames.length){ document.getElementById('radarMsg').textContent='표시할 레이더 자료가 없습니다.'; return; }
+    document.getElementById('radarMsg').textContent='';
+    radarIdx=Math.max(0, radarNowStart-1);
+    const sl=document.getElementById('radarSlider'); sl.max=radarFrames.length-1;
+    sl.oninput=()=>{ stopRadarAnim(); radarPlaying=false; updateRadarPlayBtn(); showRadarFrame(+sl.value); };
+    showRadarFrame(radarIdx);
+    radarPlaying=true; startRadarAnim();
+  }catch(e){ document.getElementById('radarMsg').textContent='레이더를 불러오지 못했습니다.'; }
+}
+function showRadarFrame(i){
+  if(!radarFrames.length) return;
+  i=((i%radarFrames.length)+radarFrames.length)%radarFrames.length;
+  radarLayers.forEach((l,k)=>l.setOpacity(k===i?0.72:0));
+  radarIdx=i;
+  const f=radarFrames[i];
+  const el=document.getElementById('radarTime'); if(el&&f) el.textContent=fmtRadarTime(f.time)+(i>=radarNowStart?' (예측)':'');
+  const sl=document.getElementById('radarSlider'); if(sl) sl.value=i;
+}
+function startRadarAnim(){ stopRadarAnim(); if(!radarFrames.length) return; radarTimer=setInterval(()=>showRadarFrame(radarIdx+1),700); radarPlaying=true; updateRadarPlayBtn(); }
+function stopRadarAnim(){ if(radarTimer){ clearInterval(radarTimer); radarTimer=null; } }
+function toggleRadarPlay(){ if(radarPlaying){ stopRadarAnim(); radarPlaying=false; } else { startRadarAnim(); } updateRadarPlayBtn(); }
+function updateRadarPlayBtn(){ const b=document.getElementById('radarPlay'); if(b) b.textContent=radarPlaying?'⏸ 일시정지':'▶ 재생'; }
 
 // ── 모델 비교 탭 ──
 // 기상청 격자 → 위경도 역변환 (해외 모델과 같은 지점을 보기 위함)
@@ -1325,7 +1406,7 @@ async function addPlace(lat, lon, name){
 }
 loadAll();
 hitCounter();
-function applyTheme(t){ document.body.classList.toggle('dark', t==='dark'); const b=document.getElementById('themeBtn'); if(b) b.textContent = t==='dark'?'일반모드':'다크모드'; }
+function applyTheme(t){ document.body.classList.toggle('dark', t==='dark'); const b=document.getElementById('themeBtn'); if(b) b.textContent = t==='dark'?'일반모드':'다크모드'; if(radarMap&&radarBase){ radarBase.setUrl(`https://{s}.basemaps.cartocdn.com/${t==='dark'?'dark_all':'light_all'}/{z}/{x}/{y}{r}.png`); } }
 function toggleTheme(){ const nx=document.body.classList.contains('dark')?'light':'dark'; try{localStorage.setItem('theme',nx);}catch(e){} applyTheme(nx); }
 (function(){ let t; try{t=localStorage.getItem('theme');}catch(e){} if(!t) t=(window.matchMedia&&window.matchMedia('(prefers-color-scheme:dark)').matches)?'dark':'light'; applyTheme(t); })();
 async function hitCounter(){
