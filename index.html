@@ -314,19 +314,32 @@ function midDay(land, ta, idx){
 }
 
 // 시간별 강수량(0~23시) 꺾은선 미니 그래프 — 빨간 점이 피크 시각
+function smoothPath(P){
+  if(!P.length) return '';
+  if(P.length<3) return 'M'+P.map(p=>p[0].toFixed(1)+','+p[1].toFixed(1)).join(' L');
+  let d='M'+P[0][0].toFixed(1)+','+P[0][1].toFixed(1);
+  for(let i=0;i<P.length-1;i++){
+    const p0=P[i-1]||P[i], p1=P[i], p2=P[i+1], p3=P[i+2]||p2;
+    const c1x=p1[0]+(p2[0]-p0[0])/6, c1y=p1[1]+(p2[1]-p0[1])/6;
+    const c2x=p2[0]-(p3[0]-p1[0])/6, c2y=p2[1]-(p3[1]-p1[1])/6;
+    d+='C'+c1x.toFixed(1)+','+c1y.toFixed(1)+' '+c2x.toFixed(1)+','+c2y.toFixed(1)+' '+p2[0].toFixed(1)+','+p2[1].toFixed(1);
+  }
+  return d;
+}
 function sparkline(hv, compact){
   if (!hv || !hv.some(v=>v>0)) return '';
   const W = compact?52:96, H = compact?18:26, LH = compact?9:11;
   const max = Math.max(...hv, 1), top = 3, base = H-2;
-  const pts = hv.map((v,h)=>`${(h/23*W).toFixed(1)},${(base - v/max*(base-top)).toFixed(1)}`).join(' ');
+  const P = hv.map((v,h)=>[h/23*W, base - v/max*(base-top)]);
+  const dPath = smoothPath(P);
   const pk = hv.indexOf(Math.max(...hv));
   const cx = (pk/23*W).toFixed(1);
   const cy = (base - hv[pk]/max*(base-top)).toFixed(1);
   const lx = Math.min(Math.max(pk/23*W, compact?9:18), W-(compact?9:18)).toFixed(1);
   const label = compact ? `${pk}시` : `${pk}시 ${hv[pk]}mm`;
   return `<svg viewBox="0 0 ${W} ${H+LH}" class="spark">`+
-    `<polygon points="0,${base} ${pts} ${W},${base}" fill="#1a6fc4" opacity="0.15"/>`+
-    `<polyline points="${pts}" fill="none" stroke="#1a6fc4" stroke-width="1.2"/>`+
+    `<path d="${dPath} L${W},${base} L0,${base} Z" fill="#1a6fc4" opacity="0.15"/>`+
+    `<path d="${dPath}" fill="none" stroke="#1a6fc4" stroke-width="1.2" stroke-linejoin="round"/>`+
     `<circle cx="${cx}" cy="${cy}" r="1.8" fill="#d43c3c"/>`+
     `<text x="${lx}" y="${H+LH-2}" font-size="${compact?7:8}" text-anchor="middle" fill="#777">${label}</text></svg>`;
 }
@@ -405,18 +418,23 @@ async function renderBriefing(idx){
   } else { r = REGIONS[idx]; }
   try{
     const [vbL, vbD] = vilageBases();
-    const today = kstNow(), tKey = ymd(today), yKey = ymd(addDays(today,-1));
+    const nowH = kstNow().getHours();
+    const dayOff = nowH >= 20 ? 1 : 0;
+    const dayWord = dayOff ? '내일' : '오늘';
+    const baseDay = addDays(kstNow(), dayOff);
+    const tKey = ymd(baseDay), prevKey = ymd(addDays(baseDay,-1)), yKey = ymd(addDays(kstNow(),-1));
     const [vilL, vilD, vilY] = await Promise.all([
       getVilage(r.nx,r.ny,vbL).catch(()=>[]), getVilage(r.nx,r.ny,vbD).catch(()=>[]),
       getVilage(r.nx,r.ny,{date:yKey, time:'0200'}).catch(()=>null)
     ]);
-    const d = summarizeVilage(mergeVilage(vilD, vilL))[tKey];
+    const merged = summarizeVilage(mergeVilage(vilD, vilL));
+    const d = merged[tKey];
     if (!d){ box.style.display='none'; return; }
     // 우산 알림
     let rain;
     if (d.rt) rain = `☔ <b>${d.rt}</b> 비${d.pcp>0?` · ${d.pcp}mm`:''}`;
     else if (d.pop>=40) rain = `☂️ 강수확률 ${d.pop}% — 우산 챙기면 안심`;
-    else rain = `☀️ 오늘 비 소식 없음 (강수확률 ${d.pop}%)`;
+    else rain = `☀️ ${dayWord} 비 소식 없음 (강수확률 ${d.pop}%)`;
     // 체감온도 (더운 날만) / 아니면 최고·최저
     let feel = '';
     if (d.tmx!=null && d.tmx>=25){
@@ -427,24 +445,27 @@ async function renderBriefing(idx){
     // 어제와 비교
     let cmp = '';
     try{
-      const yd = vilY ? summarizeVilage(vilY)[yKey] : null;
+      const yd = merged[prevKey] || (vilY ? summarizeVilage(vilY)[prevKey] : null);
       if (yd && yd.tmx!=null && d.tmx!=null){
         const diff = d.tmx - yd.tmx;
-        cmp = diff>=1 ? `📈 어제보다 <b class="tmax">${diff}°</b> 높음` : diff<=-1 ? `📉 어제보다 <b class="tmin">${-diff}°</b> 낮음` : `↔️ 어제와 비슷한 기온`;
+        const pw = dayOff ? '오늘' : '어제';
+        cmp = diff>=1 ? `📈 ${pw}보다 <b class="tmax">${diff}°</b> 높음` : diff<=-1 ? `📉 ${pw}보다 <b class="tmin">${-diff}°</b> 낮음` : `↔️ ${pw}와 비슷한 기온`;
       }
     }catch(e){}
     // 출퇴근 시간대
     const he = h => { const p=d.hp[h]||0, s=d.hs[h]||1; return p===3?EMOJI.snow : p>0?EMOJI.rain : s>=3?EMOJI.cloud:EMOJI.sun; };
     const go = d.ht[8]!=null ? `🚌 출근 8시 ${d.ht[8]}° ${he(8)}${d.hv[8]>0?' '+d.hv[8]+'mm':''}` : '';
     const back = d.ht[18]!=null ? `🏠 퇴근 18시 ${d.ht[18]}° ${he(18)}${d.hv[18]>0?' '+d.hv[18]+'mm':''}` : '';
-    const curH = kstNow().getHours();
-    let nowT=null, nowHh=curH;
-    for(let k=0;k<=curH;k++){ if(d.ht[curH-k]!=null){ nowT=d.ht[curH-k]; nowHh=curH-k; break; } }
-    const nowPart = nowT!=null ? `지금 <b class="tmax">${nowT}°</b> · ` : '';
-    if (feel) feel = feel.replace('🌡️ ', '🌡️ '+nowPart);
-    else if (nowT!=null) feel = `🌡️ 지금 <b class="tmax">${nowT}°</b>`;
+    let nowPart = '';
+    if (dayOff===0){
+      const curH = nowH;
+      let nowT=null, nowHh=curH;
+      for(let k=0;k<=curH;k++){ if(d.ht[curH-k]!=null){ nowT=d.ht[curH-k]; nowHh=curH-k; break; } }
+      nowPart = nowT!=null ? `지금 <b class="tmax">${nowT}°</b> · ` : '';
+    }
+    if (feel && nowPart) feel = feel.replace('🌡️ ', '🌡️ '+nowPart);
     box.style.display='';
-    document.getElementById('briefLeft').innerHTML = `<div class="br-head">오늘 브리핑
+    document.getElementById('briefLeft').innerHTML = `<div class="br-head">${dayWord} 브리핑
         <select id="brSel" onchange="renderBriefing(+this.value)"><option value="-1" ${idx===-1?'selected':''}>📍 내 위치</option>${REGIONS.map((g,i)=>`<option value="${i}" ${i===idx?'selected':''}>${g.name}</option>`).join('')}</select>
         </div>
       <div class="br-items">${[rain,feel,cmp,go,back].filter(Boolean).map(t=>`<div class="br-item">${t}</div>`).join('')}</div>`;
@@ -882,9 +903,10 @@ function bigRainChart(hv, hq){
     grid += `<line x1="${L}" y1="${y.toFixed(1)}" x2="${W-R}" y2="${y.toFixed(1)}" stroke="#eee"/>`
           + `<text x="${L-7}" y="${(y+3.5).toFixed(1)}" font-size="10" text-anchor="end" fill="#999">${fmt(max*f)}</text>`;
   }
-  const pts = hv.map((v,h)=>`${xC(h).toFixed(1)},${yV(v||0).toFixed(1)}`);
-  const area = `<polygon points="${xC(0).toFixed(1)},${AX} ${pts.join(' ')} ${xC(23).toFixed(1)},${AX}" fill="#1a6fc4" opacity="0.12"/>`;
-  const line = `<polyline points="${pts.join(' ')}" fill="none" stroke="#1a6fc4" stroke-width="2" stroke-linejoin="round"/>`;
+  const P = hv.map((v,h)=>[xC(h), yV(v||0)]);
+  const dPath = smoothPath(P);
+  const area = `<path d="${dPath} L${xC(23).toFixed(1)},${AX} L${xC(0).toFixed(1)},${AX} Z" fill="#1a6fc4" opacity="0.12"/>`;
+  const line = `<path d="${dPath}" fill="none" stroke="#1a6fc4" stroke-width="2" stroke-linejoin="round"/>`;
   // 수치 라벨: 피크 우선 + 서로 3시간 이상 떨어진 지점만
   const pk = hv.indexOf(Math.max(...hv));
   const labeled = hv[pk]>0 ? [pk] : [];
