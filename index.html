@@ -656,14 +656,16 @@ function scrollToRegion(reg){
 function renderRainMap(){
   const box=document.getElementById('briefMap'); if(!box) return;
   let paths='',labels='';
+  const regPos={};
+  curList.forEach((r,i)=>{ const ri=REGIONS.indexOf(r); if(ri>=0) regPos[ri]=i; });
   for(const m of KR_MAP){
-    const reg=KR2REG[m.k]; let v=null,isMid=false;
-    if(reg!=null && regionRain[reg]){ const c=regionRain[reg][mapDay]; if(c){ if(c.pcp!=null){v=c.pcp;} else {v=c.pop;isMid=true;} } }
+    const reg=KR2REG[m.k]; const pos=reg!=null?regPos[reg]:undefined; let v=null,isMid=false;
+    if(pos!=null && regionRain[pos]){ const c=regionRain[pos][mapDay]; if(c){ if(c.pcp!=null){v=c.pcp;} else {v=c.pop;isMid=true;} } }
     paths+='<path d="'+m.d+'" fill="'+rainMapColor(v,isMid)+'" stroke="#9aa8b4" stroke-width="0.6"'+(m.k[3]==='C'&&m.k[4]==='J'?' transform="translate(0,-30)"':'')+(reg!=null?' style="cursor:pointer" onclick="scrollToRegion('+reg+')"':'')+'/>';
   }
   for(const reg in REG_LABEL){
     const m=KMAP_BY_K[REG_LABEL[reg]]; if(!m) continue;
-    const c=regionRain[reg]&&regionRain[reg][mapDay]; if(!c) continue;
+    const pos=regPos[reg]; const c=regionRain[pos]&&regionRain[pos][mapDay]; if(!c) continue;
     let v=null,isMid=false;
     if(c.pcp!=null){v=c.pcp;} else {v=c.pop;isMid=true;}
     if(v==null||v<=0) continue;
