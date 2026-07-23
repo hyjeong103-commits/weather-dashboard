@@ -196,8 +196,10 @@ if (matchMedia('(max-width: 767px)').matches && !location.search.includes('pc'))
 <body>
 <h1>전국 주간 날씨</h1>
 <div class="toolbar">
-  <button class="refresh" id="themeBtn" onclick="toggleTheme()" title="화면 밝기 전환">다크모드</button>
-  <button class="refresh" onclick="loadAll()">&#8635; 새로고침</button>
+  <div style="display:flex;gap:6px;align-items:center">
+    <button class="refresh" onclick="loadAll()">&#8635; 새로고침</button>
+    <button class="refresh" id="themeBtn" onclick="toggleTheme()" title="화면 밝기 전환">다크모드</button>
+  </div>
   <span class="meta" id="baseInfo"></span>
   <span id="status"></span>
 </div>
@@ -227,6 +229,7 @@ if (matchMedia('(max-width: 767px)').matches && !location.search.includes('pc'))
 <div id="viewRadar" style="display:none">
   <div class="radar-ctl">
     <button class="sbtn" id="radarPlay" onclick="toggleRadarPlay()">⏸ 일시정지</button>
+    <button class="sbtn" id="radarSpeed" onclick="cycleRadarSpeed()">1x</button>
     <input type="range" id="radarSlider" min="0" max="0" value="0" style="flex:1">
     <span id="radarTime" class="radar-time"></span>
   </div>
@@ -1098,14 +1101,28 @@ function showTab(t){
   if (t==='compare' && !cmpInit){ cmpInit = true; initCompare(); }
   if (t==='radar'){ if(!radarInit){ radarInit=true; initRadar(); } else { setTimeout(()=>{ if(radarMap){ radarMap.invalidateSize(); if(radarPlaying) startRadarAnim(); } },60); } }
 }
-// ── 강수 레이더 (RainViewer + Leaflet) ──
-var radarMap=null, radarBase=null, radarLayers=[], radarFrames=[], radarHost='', radarIdx=0, radarTimer=null, radarPlaying=true, radarInit=false, radarNowStart=0;
-function fmtRadarTime(t){ return new Date(t*1000).toLocaleTimeString('ko-KR',{timeZone:'Asia/Seoul',hour:'2-digit',minute:'2-digit',hour12:false}); }
+// ── 강수 레이더 (실황: RainViewer · 예보 3일: Open-Meteo) ──
+var radarMap=null, radarBase=null, radarTiles=[], radarFrames=[], radarHost='', radarIdx=0, radarTimer=null, radarPlaying=true, radarInit=false, radarNowStart=0, radarSpeed=1, radarFcOverlay=null, radarFcLoaded=false;
+var RADAR_BLANK='data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==';
+var RADAR_FC_BOUNDS=[[33.875,124.875],[39.125,130.625]]; // [남,서],[북,동]
+function precipColor(v){
+  if(v<0.1) return null;
+  if(v<0.5) return [120,200,255,90];
+  if(v<1)   return [70,160,250,130];
+  if(v<2)   return [40,110,235,160];
+  if(v<4)   return [90,200,90,175];
+  if(v<7)   return [240,205,40,190];
+  if(v<12)  return [235,120,40,200];
+  if(v<20)  return [225,60,50,205];
+  return [210,60,200,210];
+}
+function fmtRadarTime(sec){ return new Date(sec*1000).toLocaleString('ko-KR',{timeZone:'Asia/Seoul',month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit',hour12:false}); }
 function initRadar(){
   if(typeof L==='undefined'){ document.getElementById('radarMsg').textContent='지도 라이브러리를 불러오지 못했습니다.'; return; }
   radarMap = L.map('radarMap',{zoomControl:true, attributionControl:true, minZoom:5, maxZoom:11}).setView([36.4,127.8],6);
   const dark=document.body.classList.contains('dark');
   radarBase = L.tileLayer(`https://{s}.basemaps.cartocdn.com/${dark?'dark_all':'light_all'}/{z}/{x}/{y}{r}.png`,{subdomains:'abcd',maxZoom:12,attribution:'© OpenStreetMap © CARTO'}).addTo(radarMap);
+  radarFcOverlay = L.imageOverlay(RADAR_BLANK, RADAR_FC_BOUNDS, {opacity:0, interactive:false}).addTo(radarMap);
   loadRadarFrames();
 }
 async function loadRadarFrames(){
@@ -1113,31 +1130,74 @@ async function loadRadarFrames(){
     const j = await fetch('https://api.rainviewer.com/public/weather-maps.json').then(r=>r.json());
     radarHost=j.host||'https://tilecache.rainviewer.com';
     const past=(j.radar&&j.radar.past)||[], now=(j.radar&&j.radar.nowcast)||[];
-    radarFrames=[...past, ...now]; radarNowStart=past.length;
-    radarLayers.forEach(l=>radarMap.removeLayer(l)); radarLayers=[];
-    radarFrames.forEach(f=>{ const l=L.tileLayer(`${radarHost}${f.path}/256/{z}/{x}/{y}/4/1_1.png`,{opacity:0,maxZoom:12,zIndex:5}); l.addTo(radarMap); radarLayers.push(l); });
-    if(!radarFrames.length){ document.getElementById('radarMsg').textContent='표시할 레이더 자료가 없습니다.'; return; }
-    document.getElementById('radarMsg').textContent='';
+    const rframes=[...past, ...now];
+    radarTiles.forEach(l=>radarMap.removeLayer(l)); radarTiles=[];
+    radarFrames=[];
+    rframes.forEach(f=>{ const l=L.tileLayer(`${radarHost}${f.path}/256/{z}/{x}/{y}/4/1_1.png`,{opacity:0,maxZoom:12,zIndex:5}); l.addTo(radarMap); radarTiles.push(l); radarFrames.push({t:'r',time:f.time,layer:l}); });
+    if(!radarFrames.length){ document.getElementById('radarMsg').textContent='표시할 레이더 자료가 없습니다.'; }
+    const lastRadar = radarFrames.length? radarFrames[radarFrames.length-1].time : Math.floor(Date.now()/1000);
+    recomputeRadarMeta();
     radarIdx=Math.max(0, radarNowStart-1);
-    const sl=document.getElementById('radarSlider'); sl.max=radarFrames.length-1;
-    sl.oninput=()=>{ stopRadarAnim(); radarPlaying=false; updateRadarPlayBtn(); showRadarFrame(+sl.value); };
-    showRadarFrame(radarIdx);
+    updateRadarSlider(); showRadarFrame(radarIdx);
     radarPlaying=true; startRadarAnim();
+    // 예보(3일) 이어붙이기
+    document.getElementById('radarMsg').textContent='3일 예보 불러오는 중…';
+    const fc = await loadForecastFrames(lastRadar);
+    radarFrames = radarFrames.concat(fc);
+    recomputeRadarMeta(); updateRadarSlider();
+    document.getElementById('radarMsg').textContent = fc.length? '' : '예보 자료를 불러오지 못했습니다(실황만 표시).';
   }catch(e){ document.getElementById('radarMsg').textContent='레이더를 불러오지 못했습니다.'; }
 }
+async function loadForecastFrames(lastRadarTime){
+  try{
+    const ROWS=[],COLS=[];
+    for(let la=39.0; la>=33.99; la-=0.25) ROWS.push(+la.toFixed(2));
+    for(let lo=125.0; lo<=130.51; lo+=0.25) COLS.push(+lo.toFixed(2));
+    const lats=[],lons=[];
+    for(const la of ROWS) for(const lo of COLS){ lats.push(la); lons.push(lo); }
+    const url=`https://api.open-meteo.com/v1/forecast?latitude=${lats.join(',')}&longitude=${lons.join(',')}&hourly=precipitation&forecast_days=3&timezone=Asia%2FSeoul`;
+    const arr=await fetch(url).then(r=>r.json());
+    if(!Array.isArray(arr)||!arr[0]) return [];
+    const times=arr[0].hourly.time, R=ROWS.length, C=COLS.length;
+    const nowMs=Date.now(), maxMs=nowMs+72*3600*1000;
+    const cvs=document.createElement('canvas'); cvs.width=C; cvs.height=R; const ctx=cvs.getContext('2d');
+    const frames=[];
+    for(let h=0;h<times.length;h++){
+      const tSec=Math.floor(new Date(times[h]+':00+09:00').getTime()/1000);
+      if(tSec*1000 <= lastRadarTime*1000) continue;
+      if(tSec*1000 > maxMs) break;
+      const img=ctx.createImageData(C,R);
+      for(let r=0;r<R;r++) for(let c=0;c<C;c++){
+        const v=arr[r*C+c].hourly.precipitation[h]||0; const col=precipColor(v); const p=(r*C+c)*4;
+        if(col){ img.data[p]=col[0];img.data[p+1]=col[1];img.data[p+2]=col[2];img.data[p+3]=col[3]; } else { img.data[p+3]=0; }
+      }
+      ctx.putImageData(img,0,0);
+      frames.push({t:'f',time:tSec,url:cvs.toDataURL()});
+    }
+    radarFcLoaded=true;
+    return frames;
+  }catch(e){ return []; }
+}
+function recomputeRadarMeta(){
+  const nowSec=Date.now()/1000;
+  radarNowStart=radarFrames.findIndex(f=>f.time>=nowSec);
+  if(radarNowStart<0) radarNowStart=radarFrames.length-1;
+}
+function updateRadarSlider(){ const sl=document.getElementById('radarSlider'); if(!sl) return; sl.max=Math.max(0,radarFrames.length-1); sl.value=radarIdx; sl.oninput=()=>{ stopRadarAnim(); radarPlaying=false; updateRadarPlayBtn(); showRadarFrame(+sl.value); }; }
 function showRadarFrame(i){
   if(!radarFrames.length) return;
   i=((i%radarFrames.length)+radarFrames.length)%radarFrames.length;
-  radarLayers.forEach((l,k)=>l.setOpacity(k===i?0.72:0));
-  radarIdx=i;
-  const f=radarFrames[i];
-  const el=document.getElementById('radarTime'); if(el&&f) el.textContent=fmtRadarTime(f.time)+(i>=radarNowStart?' (예측)':'');
+  radarIdx=i; const f=radarFrames[i];
+  if(f.t==='r'){ radarTiles.forEach(l=>l.setOpacity(l===f.layer?0.72:0)); if(radarFcOverlay) radarFcOverlay.setOpacity(0); }
+  else { radarTiles.forEach(l=>l.setOpacity(0)); if(radarFcOverlay){ radarFcOverlay.setUrl(f.url); radarFcOverlay.setOpacity(0.6); } }
+  const el=document.getElementById('radarTime'); if(el){ const tag=f.t==='f'?' 예보':(i>=radarNowStart?' 예측':' 실황'); el.textContent=fmtRadarTime(f.time)+tag; }
   const sl=document.getElementById('radarSlider'); if(sl) sl.value=i;
 }
-function startRadarAnim(){ stopRadarAnim(); if(!radarFrames.length) return; radarTimer=setInterval(()=>showRadarFrame(radarIdx+1),700); radarPlaying=true; updateRadarPlayBtn(); }
+function startRadarAnim(){ stopRadarAnim(); if(!radarFrames.length) return; radarTimer=setInterval(()=>showRadarFrame(radarIdx+1), Math.round(700/radarSpeed)); radarPlaying=true; updateRadarPlayBtn(); }
 function stopRadarAnim(){ if(radarTimer){ clearInterval(radarTimer); radarTimer=null; } }
 function toggleRadarPlay(){ if(radarPlaying){ stopRadarAnim(); radarPlaying=false; } else { startRadarAnim(); } updateRadarPlayBtn(); }
 function updateRadarPlayBtn(){ const b=document.getElementById('radarPlay'); if(b) b.textContent=radarPlaying?'⏸ 일시정지':'▶ 재생'; }
+function cycleRadarSpeed(){ const seq=[1,2,4]; radarSpeed=seq[(seq.indexOf(radarSpeed)+1)%seq.length]; const b=document.getElementById('radarSpeed'); if(b) b.textContent=radarSpeed+'x'; if(radarPlaying) startRadarAnim(); }
 
 // ── 모델 비교 탭 ──
 // 기상청 격자 → 위경도 역변환 (해외 모델과 같은 지점을 보기 위함)
