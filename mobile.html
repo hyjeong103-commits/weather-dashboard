@@ -554,22 +554,38 @@ async function renderBriefing(idx){
     const d = merged[tKey];
     if (!d){ box.style.display='none'; return; }
     let rain;
-    // 모델 가중 예상 강수량 (기상청 + 해외 4모델, 최근 2주 적중률 가중)
-    let estStr='';
+    // 기상청 vs 해외 — 최근 2주 성적 비교 후, 잘 맞힌 쪽 값 안내
+    let estStr='', bestLine='';
     try{
-      if (d.pcp>0 && mdl && mdl.hourly){
-        const H=mdl.hourly, base=dayOff*24, sums={};
-        for(const k of Object.keys(H)){ if(k==='time') continue;
-          const id=k.replace('precipitation_',''); let s=0,ok=false;
-          for(let h=0;h<24;h++){ const v=H[k][base+h]; if(v!=null){ s+=v; ok=true; } }
-          if(ok) sums[id]=s; }
-        const ll=gridToLatLon(r.nx,r.ny);
-        const w=await getBlendWeights(ll.lat, ll.lon, r.nx, r.ny);
-        const est=blendRain(d.pcp, sums, w);
-        if(est!=null && Math.abs(est-d.pcp)>=1) estStr=` <span class="est">(예상 ${est}mm)</span>`;
+      if (mdl && mdl.hourly){
+        const H=mdl.hourly, base=dayOff*24;
+        const daySum=id=>{ const k='precipitation_'+id; if(!H[k]) return null;
+          let s=0,ok=false; for(let h=0;h<24;h++){ const v=H[k][base+h]; if(v!=null){ s+=v; ok=true; } }
+          return ok? s : null; };
+        const abroad=medianOf(BLEND_IDS.map(daySum));
+        if(abroad!=null && (d.pcp>0 || abroad>0)){
+          const av=Math.round(abroad*10)/10;
+          const ll=gridToLatLon(r.nx,r.ny);
+          const sc=await getCampScore(ll.lat, ll.lon, r.nx, r.ny);
+          const gap=Math.abs(av-d.pcp);
+          if(gap>=1){
+            estStr=` <span class="est">(해외 ${av}mm)</span>`;
+            if(sc.kma && sc.abroad){
+              const kmaWin=sc.kma.mae<=sc.abroad.mae;
+              bestLine=kmaWin
+                ? `🎯 최근 2주는 <b>기상청</b>이 더 정확했어요 (±${sc.kma.mae}mm vs 해외 ±${sc.abroad.mae}mm)`
+                : `🎯 최근 2주는 <b>해외 모델</b>이 더 정확했어요 (±${sc.abroad.mae}mm vs 기상청 ±${sc.kma.mae}mm) — <b>${av}mm</b> 쪽에 무게`;
+            } else if(sc.abroad){
+              bestLine=`🎯 해외 모델은 <b>${av}mm</b>로 봐요 (해외 최근 오차 ±${sc.abroad.mae}mm · 기상청 성적은 기록 쌓는 중)`;
+            } else {
+              bestLine=`🎯 해외 모델은 <b>${av}mm</b>로 봐요`;
+            }
+          }
+        }
       }
     }catch(e){}
     if (d.rt) rain = d.shower ? `🌦️ <b>${d.rt}</b> 소나기 가능${d.pcp>0?` · ${d.pcp}mm${estStr}`:''}` : `☔ <b>${d.rt}</b> 비${d.pcp>0?` · ${d.pcp}mm${estStr}`:''}`;
+    else if (estStr && bestLine) rain = `☂️ 강수확률 ${d.pop}%${estStr}`;
     else if (d.pop>=40) rain = `☂️ 강수확률 ${d.pop}% — 우산 챙기면 안심`;
     else rain = `☀️ ${dayWord} 비 소식 없음 (강수확률 ${d.pop}%)`;
     let feel = '';
@@ -634,7 +650,7 @@ async function renderBriefing(idx){
     document.getElementById('briefLeft').innerHTML = `<div class="br-head">${dayWord} 브리핑
         <select id="brSel" onchange="renderBriefing(+this.value)"><option value="-1" ${idx===-1?'selected':''}>📍 내 위치</option>${REGIONS.map((g,i)=>`<option value="${i}" ${i===idx?'selected':''}>${g.name}</option>`).join('')}</select>
         </div>
-      <div class="br-items">${[[briefSummary(d,dayOff),' br-summary'],[rain,''],[trust,' br-sub'],[feel,''],[cmp,''],[dust,' br-sub'],[uv,' br-sub'],[go,''],[back,'']].filter(x=>x[0]).map(x=>`<div class="br-item${x[1]}">${x[0]}</div>`).join('')}</div>`;
+      <div class="br-items">${[[briefSummary(d,dayOff),' br-summary'],[rain,''],[bestLine,' br-sub'],[trust,' br-sub'],[feel,''],[cmp,''],[dust,' br-sub'],[uv,' br-sub'],[go,''],[back,'']].filter(x=>x[0]).map(x=>`<div class="br-item${x[1]}">${x[0]}</div>`).join('')}</div>`;
   }catch(e){ box.style.display='none'; console.error('briefing', e); }
   loadTable(r); // 기준 지점에서 가까운 순으로 카드 정렬
 }
@@ -1229,15 +1245,17 @@ function gridToLatLon(nx, ny){
   return { lat: alat*RADDEG, lon: (theta/sn + olon)*RADDEG };
 }
 // 세계 검증 순위 상위(ECMWF 1위·UKMO 2위) + 동아시아 특화(JMA)
-// ── 모델 가중 예상 강수량 ──
-// 최근 2주 hindcast로 모델별 강수 오차(MAE)를 구해 가중치를 만들고,
-// 기상청 + 해외 4개 모델을 가중 평균해 "예상 mm"를 산출한다.
+// ── 기상청 vs 해외 : 최근 2주 성적 비교 ──
+// 해외 모델 4개는 '해외' 한 진영으로 묶어 중앙값을 쓴다.
+// 두 진영의 최근 2주 평균오차를 재고, 더 잘 맞힌 쪽 값을 보여준다.
 const BLEND_IDS = ['ecmwf_ifs025','ukmo_global_deterministic_10km','jma_gsm','gfs_seamless'];
-function bwCacheKey(lat,lon){ return 'bw:'+lat.toFixed(1)+','+lon.toFixed(1); }
-async function getBlendWeights(lat,lon,nx,ny){
+function medianOf(a){ const v=a.filter(x=>x!=null&&!isNaN(x)).sort((x,y)=>x-y); if(!v.length) return null;
+  const m=Math.floor(v.length/2); return v.length%2? v[m] : (v[m-1]+v[m])/2; }
+function bwCacheKey(lat,lon){ return 'vs:'+lat.toFixed(1)+','+lon.toFixed(1); }
+async function getCampScore(lat,lon,nx,ny){
   const key=bwCacheKey(lat,lon), today=ymd(kstNow());
-  try{ const c=JSON.parse(localStorage.getItem(key)||'null'); if(c&&c.d===today) return c.w; }catch(e){}
-  const w={kma:1};
+  try{ const c=JSON.parse(localStorage.getItem(key)||'null'); if(c&&c.d===today) return c.s; }catch(e){}
+  let out={abroad:null, kma:null};
   try{
     const n=kstNow(), f=d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
     const S=f(addDays(n,-14)), E=f(addDays(n,-1));
@@ -1248,33 +1266,26 @@ async function getBlendWeights(lat,lon,nx,ny){
     ]);
     const oP=obs.daily&&obs.daily.precipitation_sum;
     if(oP&&fc.daily){
-      for(const id of BLEND_IDS){
-        const fP=fc.daily['precipitation_sum_'+id];
-        if(!fP) continue; let e=0,n2=0;
-        for(let i=0;i<oP.length;i++) if(fP[i]!=null&&oP[i]!=null){ e+=Math.abs(fP[i]-oP[i]); n2++; }
-        if(n2>=7) w[id]=1/((e/n2)+1.5);   // 오차 작을수록 큰 가중치
+      // 해외 진영: 매일 4모델 중앙값 vs 관측
+      let e=0,c=0;
+      for(let i=0;i<oP.length;i++){
+        if(oP[i]==null) continue;
+        const day=BLEND_IDS.map(id=>{ const a=fc.daily['precipitation_sum_'+id]; return a?a[i]:null; });
+        const med=medianOf(day); if(med==null) continue;
+        e+=Math.abs(med-oP[i]); c++;
       }
-      // 기상청 — 기기에 기록된 예보가 있으면 같은 방식으로, 없으면 모델 평균 수준
-      if(nx!=null&&typeof kmaLogGet==='function'){
-        const log=kmaLogGet(nx,ny); let e=0,n3=0;
+      if(c>=7) out.abroad={mae:Math.round(e/c*10)/10, n:c};
+      // 기상청 진영: 기기에 기록된 예보로 채점
+      if(nx!=null && typeof kmaLogGet==='function'){
+        const log=kmaLogGet(nx,ny); let e2=0,c2=0;
         (obs.daily.time||[]).forEach((ds,i)=>{ const rec=log[ds.replace(/-/g,'')];
-          if(rec&&rec.p!=null&&oP[i]!=null){ e+=Math.abs(rec.p-oP[i]); n3++; } });
-        const ms=BLEND_IDS.map(id=>w[id]).filter(v=>v);
-        w.kma = n3>=5 ? 1/((e/n3)+1.5) : (ms.length? ms.reduce((a,b)=>a+b,0)/ms.length : 1);
+          if(rec&&rec.p!=null&&oP[i]!=null){ e2+=Math.abs(rec.p-oP[i]); c2++; } });
+        if(c2>=5) out.kma={mae:Math.round(e2/c2*10)/10, n:c2};
       }
     }
   }catch(e){}
-  try{ localStorage.setItem(key,JSON.stringify({d:ymd(kstNow()),w})); }catch(e){}
-  return w;
-}
-function blendRain(kmaMm, modelSums, w){
-  const parts=[[kmaMm, w.kma||1]];
-  for(const id in modelSums){ const v=modelSums[id]; if(v==null||isNaN(v)) continue; parts.push([v, w[id]||0.5]); }
-  if(parts.length<3) return null;
-  let num=0,den=0; for(const [v,wt] of parts){ num+=v*wt; den+=wt; }
-  if(!den) return null;
-  const est=num/den;
-  return Math.round(est*10)/10;
+  try{ localStorage.setItem(key,JSON.stringify({d:ymd(kstNow()),s:out})); }catch(e){}
+  return out;
 }
 const MODELS = [
   {id:'ecmwf_ifs025',  name:'ECMWF', desc:'유럽 · 1위'},
