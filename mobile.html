@@ -375,8 +375,21 @@ function summarizeVilage(items){
     if (d.tmn==null && d.tmps.length) d.tmn = Math.round(Math.min(...d.tmps));
     if (d.tmx==null && d.tmps.length) d.tmx = Math.round(Math.max(...d.tmps));
     d.pcp = Math.round(d.pcp*10)/10;
-    d.rt = d.rh.length ? `${Math.min(...d.rh)}~${Math.max(...d.rh)+1}시` : null;
     d.shower = d.rh.length>0 && d.rh.every(h=>d.hp[h]===4);
+    if(!d.rh.length) d.rt = null;
+    else if(d.shower){
+      // 소나기는 내내 오지 않는다. 비 오는 시각을 덩어리로 묶어
+      // 덩어리가 1~2개면 그 시각들을, 3개 이상이면 '곳곳' 범위로 표기한다.
+      const hs=d.rh.slice().sort((a,b)=>a-b);
+      const groups=[]; let cur=[hs[0]];
+      for(let i=1;i<hs.length;i++){ if(hs[i]-hs[i-1]<=2) cur.push(hs[i]); else { groups.push(cur); cur=[hs[i]]; } }
+      groups.push(cur);
+      if(groups.length<=2){
+        d.rt = groups.map(gp=>{ let pk=gp[0],mx=-1; for(const h of gp){ const v=d.hv[h]||0; if(v>mx){mx=v;pk=h;} } return pk+'시'; }).join('·')+'경';
+      } else {
+        d.rt = `${hs[0]}~${hs[hs.length-1]+1}시 곳곳`;
+      }
+    } else d.rt = `${Math.min(...d.rh)}~${Math.max(...d.rh)+1}시`;
   }
   return byDate;
 }
@@ -516,7 +529,7 @@ function briefSummary(d, dayOff){
   for(let h=0;h<24;h++){ const r=(d.hp&&d.hp[h]>0)||(d.hv&&d.hv[h]>0); if(r){ if(start<0)start=h; end=h; } }
   const snow = d.hp && d.hp.some(p=>p===3);
   let lead, emo;
-  if(start>=0){ if(snow){ emo='🌨️'; lead=`${dw} ${hourWordK(start)}부터 ${hourWordK(end+1)}까지 눈이 와요`; } else if(d.shower){ emo='🌦️'; lead=`${dw} ${hourWordK(start)}~${hourWordK(end+1)}에 소나기가 지날 수 있어요`; } else { emo='🌧️'; lead=`${dw} ${hourWordK(start)}부터 ${hourWordK(end+1)}까지 비가 와요`; } }
+  if(start>=0){ if(snow){ emo='🌨️'; lead=`${dw} 눈이 와요`; } else if(d.shower){ emo='🌦️'; lead=`${dw} 곳에 따라 소나기가 지나요`; } else { emo='🌧️'; lead=`${dw} 비가 와요`; } }
   else { const sky=(d.hs&&(d.hs[13]||d.hs[12]))||1; if(sky>=3){emo='☁️';lead=`${dw} 대체로 흐려요`;} else if(sky===2){emo='⛅';lead=`${dw} 구름이 조금 있어요`;} else {emo='☀️';lead=`${dw} 대체로 맑아요`;} }
   const tail = d.tmx!=null ? ` ${tempMoodK(d.tmx)}.` : '.';
   return `${emo} ${lead},${tail}`;
@@ -554,7 +567,7 @@ async function renderBriefing(idx){
     const d = merged[tKey];
     if (!d){ box.style.display='none'; return; }
     let rain;
-    // 최근 2주 성적이 더 좋았던 쪽의 강수량을 그대로 사용 (출처는 표시하지 않음)
+    // 강수량 — 최근 성적이 검증된 쪽 값을 사용 (출처는 화면에 표시하지 않음)
     let showPcp = d.pcp;
     try{
       if (mdl && mdl.hourly){
@@ -566,8 +579,16 @@ async function renderBriefing(idx){
         if(abroad!=null){
           const ll=gridToLatLon(r.nx,r.ny);
           const sc=await getCampScore(ll.lat, ll.lon, r.nx, r.ny);
-          // 기상청 성적을 아직 못 매기면 기존대로 기상청 값 유지
-          if(sc.kma && sc.abroad && sc.abroad.mae < sc.kma.mae) showPcp = Math.round(abroad*10)/10;
+          const av=Math.round(abroad*10)/10;
+          if(sc.kma && sc.abroad){
+            // 양쪽 성적이 다 있으면 잘 맞힌 쪽
+            if(sc.abroad.mae < sc.kma.mae) showPcp = av;
+          } else if(sc.abroad){
+            // 해외 성적만 검증된 상태 — 두 값이 크게 벌어질 때만 해외값 채택
+            //  (기상청은 소나기를 국지 최대치로 크게 잡는 경향이 있어 과대평가되기 쉬움)
+            const big = d.pcp>=5 && (d.pcp > av*2);
+            if(big) showPcp = av;
+          }
         }
       }
     }catch(e){}
@@ -600,7 +621,7 @@ async function renderBriefing(idx){
       let uvMax=null; for(let h=0;h<24;h++){ const val=H.uv_index[baseI+h]; if(val!=null&&(uvMax==null||val>uvMax))uvMax=val; }
       if (uvMax!=null){
         const un=H.uv_index[hi];
-        uv = `🔆 자외선 ${uvGrade(uvMax)}`;
+        uv = (dayOff||nowH<9||nowH>=18) ? `🔆 낮 자외선 ${uvGrade(uvMax)}` : `🔆 자외선 ${uvGrade(uvMax)}`;
       }
     }
     // 모델 신뢰도 힌트 — 기상청 강수량과 해외 4개 모델(ECMWF/UKMO/JMA/GFS) 비교
