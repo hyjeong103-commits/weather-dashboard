@@ -61,6 +61,8 @@
   #radarMap{height:68vh;width:100%;background:#dde3ea;}
   body.dark #radarMap{background:#0f1319;}
   .leaflet-container{font:inherit;}
+  .newissue{display:none;background:#2b579a;color:#fff;text-align:center;font-size:12.5px;font-weight:700;padding:8px 10px;cursor:pointer;}
+  body.dark .newissue{background:#3a5578;}
   .tabs{display:flex;gap:6px;margin:4px 8px 0;}
   .tab{flex:1;border:1px solid var(--line);background:#fff;color:#555;border-radius:8px;padding:8px 0;font-size:13.5px;cursor:pointer;}
   .tab.active{background:var(--blue);color:#fff;border-color:var(--blue);font-weight:700;}
@@ -194,6 +196,7 @@
     <button class="refresh" id="themeBtn" onclick="toggleTheme()" title="화면 밝기 전환">다크모드</button>
   </div>
 </header>
+<div id="newIssue" class="newissue" onclick="doRefresh()"></div>
 <div class="meta" id="baseInfo"></div>
 <div id="status"></div>
 <div class="tabs">
@@ -261,7 +264,7 @@ const REGIONS = [
   {name:'제주 북부 (제주)',   land:'11G00000', ta:'11G00201', nx:53, ny:38},
   {name:'제주 남부 (서귀포)', land:'11G00000', ta:'11G00401', nx:52, ny:33},
 ];
-const EMOJI = {sun:'☀️', cloud:'☁️', rain:'🌧️', snow:'☃️'};
+const EMOJI = {sun:'☀️', cloud:'☁️', rain:'🌧️', snow:'☃️', shower:'🌦️'};
 const SEV_EMOJI = ['sun','cloud','snow','rain'];
 const WD = ['일','월','화','수','목','금','토'];
 
@@ -355,6 +358,7 @@ function summarizeVilage(items){
     if (d.tmx==null && d.tmps.length) d.tmx = Math.round(Math.max(...d.tmps));
     d.pcp = Math.round(d.pcp*10)/10;
     d.rt = d.rh.length ? `${Math.min(...d.rh)}~${Math.max(...d.rh)+1}시` : null;
+    d.shower = d.rh.length>0 && d.rh.every(h=>d.hp[h]===4);
   }
   return byDate;
 }
@@ -415,7 +419,7 @@ function sparkline(hv, compact){
     `<text x="${lx}" y="${H+LH-2}" font-size="${compact?7:8}" text-anchor="middle" fill="#777">${label}</text></svg>`;
 }
 function dayHTML(lb, dateStr, cell, isMid, isToday, rname){
-  const wx = (cell && cell.sev!=null) ? EMOJI[SEV_EMOJI[cell.sev]] : '<span class="dim">-</span>';
+  const wx = (cell && cell.sev!=null) ? (cell.shower?EMOJI.shower:EMOJI[SEV_EMOJI[cell.sev]]) : '<span class="dim">-</span>';
   let tp = '<span class="dim">-</span>';
   if (cell && (cell.tmin!=null || cell.tmax!=null))
     tp = `<span class="tmax">${cell.tmax ?? '-'}</span><span class="sep">/</span><span class="tmin">${cell.tmin ?? '-'}°</span>`;
@@ -494,7 +498,7 @@ function briefSummary(d, dayOff){
   for(let h=0;h<24;h++){ const r=(d.hp&&d.hp[h]>0)||(d.hv&&d.hv[h]>0); if(r){ if(start<0)start=h; end=h; } }
   const snow = d.hp && d.hp.some(p=>p===3);
   let lead, emo;
-  if(start>=0){ emo=snow?'🌨️':'🌧️'; lead=`${dw} ${hourWordK(start)}부터 ${hourWordK(end+1)}까지 ${snow?'눈':'비'}가 와요`; }
+  if(start>=0){ if(snow){ emo='🌨️'; lead=`${dw} ${hourWordK(start)}부터 ${hourWordK(end+1)}까지 눈이 와요`; } else if(d.shower){ emo='🌦️'; lead=`${dw} ${hourWordK(start)}~${hourWordK(end+1)}에 소나기가 지날 수 있어요`; } else { emo='🌧️'; lead=`${dw} ${hourWordK(start)}부터 ${hourWordK(end+1)}까지 비가 와요`; } }
   else { const sky=(d.hs&&(d.hs[13]||d.hs[12]))||1; if(sky>=3){emo='☁️';lead=`${dw} 대체로 흐려요`;} else if(sky===2){emo='⛅';lead=`${dw} 구름이 조금 있어요`;} else {emo='☀️';lead=`${dw} 대체로 맑아요`;} }
   const tail = d.tmx!=null ? ` 낮 최고 ${d.tmx}도로 ${tempMoodK(d.tmx)}.` : '.';
   return `${emo} ${lead},${tail}`;
@@ -529,7 +533,7 @@ async function renderBriefing(idx){
     const d = merged[tKey];
     if (!d){ box.style.display='none'; return; }
     let rain;
-    if (d.rt) rain = `☔ <b>${d.rt}</b> 비${d.pcp>0?` · ${d.pcp}mm`:''}`;
+    if (d.rt) rain = d.shower ? `🌦️ <b>${d.rt}</b> 소나기 가능${d.pcp>0?` · ${d.pcp}mm`:''}` : `☔ <b>${d.rt}</b> 비${d.pcp>0?` · ${d.pcp}mm`:''}`;
     else if (d.pop>=40) rain = `☂️ 강수확률 ${d.pop}% — 우산 챙기면 안심`;
     else rain = `☀️ ${dayWord} 비 소식 없음 (강수확률 ${d.pop}%)`;
     let feel = '';
@@ -562,7 +566,7 @@ async function renderBriefing(idx){
                     : `🔆 자외선 ${uvGrade(un)} (지금 ${un.toFixed(1)} · 최고 ${uvMax.toFixed(1)})`;
       }
     }
-    const he = h => { const p=d.hp[h]||0, s=d.hs[h]||1; return p===3?EMOJI.snow : p>0?EMOJI.rain : s>=3?EMOJI.cloud:EMOJI.sun; };
+    const he = h => { const p=d.hp[h]||0, s=d.hs[h]||1; return p===3?EMOJI.snow : p===4?EMOJI.shower : p>0?EMOJI.rain : s>=3?EMOJI.cloud:EMOJI.sun; };
     const go = d.ht[8]!=null ? `🚌 출근 8시 ${d.ht[8]}° ${he(8)}${d.hv[8]>0?' '+d.hv[8]+'mm':''}` : '';
     const back = d.ht[18]!=null ? `🏠 퇴근 18시 ${d.ht[18]}° ${he(18)}${d.hv[18]>0?' '+d.hv[18]+'mm':''}` : '';
     let nowPart = '';
@@ -829,6 +833,8 @@ async function loadAll(){
   const [vbL] = vilageBases(), [tmFc] = midTmFcs();
   document.getElementById('baseInfo').textContent =
     `단기 발표 ${vbL.date.slice(4,6)}/${vbL.date.slice(6)} ${vbL.time.slice(0,2)}:${vbL.time.slice(2)} · 중기 발표 ${tmFc.slice(4,6)}/${tmFc.slice(6,8)} ${tmFc.slice(8,10)}:00`;
+  loadedBaseKey = vbL.date + vbL.time;
+  const _ni=document.getElementById('newIssue'); if(_ni) _ni.style.display='none';
   lastOrder = '';
   loadTable(null);          // 위치를 기다리지 않고 기본 순서로 즉시 로딩 시작
   renderBriefing(briefIdx); // 위치 확인되면 순서만 재배치 (데이터는 캐시 재사용)
@@ -886,7 +892,7 @@ async function loadTable(ref){
         let cell = null, isMid = false;
         if (k<=3 && days[dateKey]){
           const s = days[dateKey];
-          cell = {sev:s.sev, pop:s.pop, pcp:s.pcp, tmin:s.tmn, tmax:s.tmx, rt:s.rt, hv:s.hv, hq:s.hq};
+          cell = {sev:s.sev, pop:s.pop, pcp:s.pcp, tmin:s.tmn, tmax:s.tmx, rt:s.rt, hv:s.hv, hq:s.hq, shower:s.shower};
         } else { cell = mergeMid(midDay(land, ta, k+diff), midDay(land2, ta2, k+diff2)); isMid = true; }
         rainCells.push(cell ? {pcp: isMid ? null : cell.pcp, pop: cell.pop} : null);
         return dayHTML(lb, `${d.getMonth()+1}/${d.getDate()}(${WD[d.getDay()]})`, cell, isMid, k===0, r.name);
@@ -1419,7 +1425,7 @@ async function regionCells(r){
     let cell = null, isMid = false;
     if (k<=3 && days[dateKey]){
       const d = days[dateKey];
-      cell = {sev:d.sev, pop:d.pop, pcp:d.pcp, tmin:d.tmn, tmax:d.tmx, rt:d.rt, hv:d.hv, hq:d.hq};
+      cell = {sev:d.sev, pop:d.pop, pcp:d.pcp, tmin:d.tmn, tmax:d.tmx, rt:d.rt, hv:d.hv, hq:d.hq, shower:d.shower};
     } else { cell = mergeMid(midDay(land, ta, k+diff), midDay(land2, ta2, k+diff2)); isMid = true; }
     out.push({cell, isMid, date: addDays(today,k)});
   }
@@ -1454,6 +1460,7 @@ async function addPlace(lat, lon, name){
   const near = orderedRegions(g)[0]; // D+4~ 중기예보는 가장 가까운 권역 사용
   const r = {name, land:near.land, ta:near.ta, nx:g.nx, ny:g.ny};
   const id = 'pl' + (placeSeq++);
+  openPlaces[id] = {r, name};
   document.getElementById('places').insertAdjacentHTML('afterbegin',
     `<div class="card" id="${id}"><h2>${name}<span class="sub">중기: ${near.name}</span><button class="rm" onclick="document.getElementById('${id}').remove()">✕</button></h2><div class="pbody"><div class="err-inline" style="color:#777">불러오는 중...</div></div></div>`);
   const body = document.querySelector(`#${id} .pbody`);
@@ -1469,6 +1476,14 @@ hitCounter();
 function applyTheme(t){ document.body.classList.toggle('dark', t==='dark'); const b=document.getElementById('themeBtn'); if(b) b.textContent = t==='dark'?'일반모드':'다크모드'; if(radarMap&&radarBase){ radarBase.setUrl(`https://{s}.basemaps.cartocdn.com/${t==='dark'?'dark_all':'light_all'}/{z}/{x}/{y}{r}.png`); } }
 function toggleTheme(){ const nx=document.body.classList.contains('dark')?'light':'dark'; try{localStorage.setItem('theme',nx);}catch(e){} applyTheme(nx); }
 (function(){ let t; try{t=localStorage.getItem('theme');}catch(e){} if(!t) t=(window.matchMedia&&window.matchMedia('(prefers-color-scheme:dark)').matches)?'dark':'light'; applyTheme(t); })();
+let loadedBaseKey='';
+let openPlaces={};
+function currentBaseKey(){ const b=vilageBases()[0]; return b.date+b.time; }
+function checkNewIssue(){ if(!loadedBaseKey) return; const el=document.getElementById('newIssue'); if(!el) return; if(currentBaseKey()!==loadedBaseKey){ const b=vilageBases()[0]; el.textContent='🔄 새 예보('+b.time.slice(0,2)+'시 발표)가 나왔어요 — 탭하여 갱신'; el.style.display='block'; } }
+async function refreshPlaces(){ for(const id in openPlaces){ const card=document.getElementById(id); if(!card){ delete openPlaces[id]; continue; } const o=openPlaces[id]; try{ const cells=await regionCells(o.r); const labels=['오늘','내일','D+2','D+3','D+4','D+5','D+6']; const body=card.querySelector('.pbody'); if(body) body.innerHTML=`<div class="days">${cells.map((c,k)=>dayHTML(labels[k],`${c.date.getMonth()+1}/${c.date.getDate()}(${WD[c.date.getDay()]})`,c.cell,c.isMid,k===0,o.name)).join('')}</div>`; }catch(e){} } }
+async function doRefresh(){ const el=document.getElementById('newIssue'); if(el) el.style.display='none'; await loadAll(); await refreshPlaces(); }
+setInterval(checkNewIssue, 5*60*1000);
+document.addEventListener('visibilitychange',()=>{ if(!document.hidden) checkNewIssue(); });
 async function hitCounter(){
   try{
     const seen = sessionStorage.getItem('vseen');
