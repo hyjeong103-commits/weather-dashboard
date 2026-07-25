@@ -300,8 +300,24 @@ function vilageBases(){
   return [latest, daily];
 }
 function mergeVilage(dailyItems, latestItems){
+  // 최신 발표가 우선. 02시(보조) 발표는 최신에 없는 값만 보완하되,
+  // '이미 지나간 시각'의 강수 항목은 보완하지 않는다.
+  //  → 기상청이 나중에 철회한 옛 예보(예: 아침에 냈다 취소한 소나기)가
+  //    되살아나 실제로 오지 않은 비가 표시되는 것을 막기 위함.
   const map = new Map();
-  for (const it of dailyItems)  map.set(`${it.fcstDate}|${it.fcstTime}|${it.category}`, it);
+  const n = kstNow();
+  const nowKey = ymd(n) + String(n.getHours()).padStart(2,'0');
+  const VOLATILE = new Set(['PCP','POP','PTY','SNO','SKY']);
+  const latestKeys = new Set(latestItems.map(it=>`${it.fcstDate}|${it.fcstTime}|${it.category}`));
+  for (const it of dailyItems){
+    const key = `${it.fcstDate}|${it.fcstTime}|${it.category}`;
+    if (latestKeys.has(key)) continue;               // 최신 값이 있으면 그것을 씀
+    if (VOLATILE.has(it.category)){
+      const stamp = it.fcstDate + it.fcstTime.slice(0,2);
+      if (stamp < nowKey) continue;                  // 지나간 시각의 강수/하늘 정보는 버림
+    }
+    map.set(key, it);
+  }
   for (const it of latestItems) map.set(`${it.fcstDate}|${it.fcstTime}|${it.category}`, it);
   return [...map.values()];
 }
