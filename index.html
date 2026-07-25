@@ -527,7 +527,7 @@ function briefSummary(d, dayOff){
   let lead, emo;
   if(start>=0){ if(snow){ emo='🌨️'; lead=`${dw} ${hourWordK(start)}부터 ${hourWordK(end+1)}까지 눈이 와요`; } else if(d.shower){ emo='🌦️'; lead=`${dw} ${hourWordK(start)}~${hourWordK(end+1)}에 소나기가 지날 수 있어요`; } else { emo='🌧️'; lead=`${dw} ${hourWordK(start)}부터 ${hourWordK(end+1)}까지 비가 와요`; } }
   else { const sky=(d.hs&&(d.hs[13]||d.hs[12]))||1; if(sky>=3){emo='☁️';lead=`${dw} 대체로 흐려요`;} else if(sky===2){emo='⛅';lead=`${dw} 구름이 조금 있어요`;} else {emo='☀️';lead=`${dw} 대체로 맑아요`;} }
-  const tail = d.tmx!=null ? ` 낮 최고 ${d.tmx}도로 ${tempMoodK(d.tmx)}.` : '.';
+  const tail = d.tmx!=null ? ` ${tempMoodK(d.tmx)}.` : '.';
   return `${emo} ${lead},${tail}`;
 }
 function pm10Grade(v){ return v<=30?['좋음','😊']:v<=80?['보통','🙂']:v<=150?['나쁨','😷']:['매우나쁨','🤢']; }
@@ -564,8 +564,8 @@ async function renderBriefing(idx){
     if (!d){ box.style.display='none'; return; }
     // 우산 알림
     let rain;
-    // 기상청 vs 해외 — 최근 2주 성적 비교 후, 잘 맞힌 쪽 값 안내
-    let estStr='', bestLine='';
+    // 최근 2주 성적이 더 좋았던 쪽의 강수량을 그대로 사용 (출처는 표시하지 않음)
+    let showPcp = d.pcp;
     try{
       if (mdl && mdl.hourly){
         const H=mdl.hourly, base=dayOff*24;
@@ -573,29 +573,15 @@ async function renderBriefing(idx){
           let s=0,ok=false; for(let h=0;h<24;h++){ const v=H[k][base+h]; if(v!=null){ s+=v; ok=true; } }
           return ok? s : null; };
         const abroad=medianOf(BLEND_IDS.map(daySum));
-        if(abroad!=null && (d.pcp>0 || abroad>0)){
-          const av=Math.round(abroad*10)/10;
+        if(abroad!=null){
           const ll=gridToLatLon(r.nx,r.ny);
           const sc=await getCampScore(ll.lat, ll.lon, r.nx, r.ny);
-          const gap=Math.abs(av-d.pcp);
-          if(gap>=1){
-            estStr=` <span class="est">(해외 ${av}mm)</span>`;
-            if(sc.kma && sc.abroad){
-              const kmaWin=sc.kma.mae<=sc.abroad.mae;
-              bestLine=kmaWin
-                ? `🎯 최근 2주는 <b>기상청</b>이 더 정확했어요 (±${sc.kma.mae}mm vs 해외 ±${sc.abroad.mae}mm)`
-                : `🎯 최근 2주는 <b>해외 모델</b>이 더 정확했어요 (±${sc.abroad.mae}mm vs 기상청 ±${sc.kma.mae}mm) — <b>${av}mm</b> 쪽에 무게`;
-            } else if(sc.abroad){
-              bestLine=`🎯 해외 모델은 <b>${av}mm</b>로 봐요 (해외 최근 오차 ±${sc.abroad.mae}mm · 기상청 성적은 기록 쌓는 중)`;
-            } else {
-              bestLine=`🎯 해외 모델은 <b>${av}mm</b>로 봐요`;
-            }
-          }
+          // 기상청 성적을 아직 못 매기면 기존대로 기상청 값 유지
+          if(sc.kma && sc.abroad && sc.abroad.mae < sc.kma.mae) showPcp = Math.round(abroad*10)/10;
         }
       }
     }catch(e){}
-    if (d.rt) rain = d.shower ? `🌦️ <b>${d.rt}</b> 소나기 가능${d.pcp>0?` · ${d.pcp}mm${estStr}`:''}` : `☔ <b>${d.rt}</b> 비${d.pcp>0?` · ${d.pcp}mm${estStr}`:''}`;
-    else if (estStr && bestLine) rain = `☂️ 강수확률 ${d.pop}%${estStr}`;
+    if (d.rt) rain = d.shower ? `🌦️ <b>${d.rt}</b> 소나기 가능${showPcp>0?` · ${showPcp}mm`:''}` : `☔ <b>${d.rt}</b> 비${showPcp>0?` · ${showPcp}mm`:''}`;
     else if (d.pop>=40) rain = `☂️ 강수확률 ${d.pop}% — 우산 챙기면 안심`;
     else rain = `☀️ ${dayWord} 비 소식 없음 (강수확률 ${d.pop}%)`;
     // 체감온도 (더운 날만) / 아니면 최고·최저
@@ -622,13 +608,12 @@ async function renderBriefing(idx){
       const p10=H.pm10[hi], p25=H.pm2_5[hi];
       if (p10!=null && p25!=null){
         const g10=pm10Grade(p10), g25=pm25Grade(p25);
-        dust = `${g25[1]} 미세 ${g10[0]}(${Math.round(p10)}) · 초미세 ${g25[0]}(${Math.round(p25)})`;
+        dust = `${g25[1]} 미세 ${g10[0]} · 초미세 ${g25[0]}`;
       }
       let uvMax=null; for(let h=0;h<24;h++){ const val=H.uv_index[baseI+h]; if(val!=null&&(uvMax==null||val>uvMax))uvMax=val; }
       if (uvMax!=null){
         const un=H.uv_index[hi];
-        uv = dayOff ? `🔆 자외선 최고 ${uvGrade(uvMax)} (${uvMax.toFixed(1)})`
-                    : `🔆 자외선 ${uvGrade(un)} (지금 ${un.toFixed(1)} · 최고 ${uvMax.toFixed(1)})`;
+        uv = `🔆 자외선 ${uvGrade(uvMax)}`;
       }
     }
     // 모델 신뢰도 힌트 — 기상청 강수량과 해외 4개 모델(ECMWF/UKMO/JMA/GFS) 비교
@@ -663,7 +648,13 @@ async function renderBriefing(idx){
     document.getElementById('briefLeft').innerHTML = `<div class="br-head">${dayWord} 브리핑
         <select id="brSel" onchange="renderBriefing(+this.value)"><option value="-1" ${idx===-1?'selected':''}>📍 내 위치</option>${REGIONS.map((g,i)=>`<option value="${i}" ${i===idx?'selected':''}>${g.name}</option>`).join('')}</select>
         </div>
-      <div class="br-items">${[[briefSummary(d,dayOff),' br-summary'],[rain,''],[bestLine,' br-sub'],[trust,' br-sub'],[feel,''],[cmp,''],[dust,' br-sub'],[uv,' br-sub'],[go,''],[back,'']].filter(x=>x[0]).map(x=>`<div class="br-item${x[1]}">${x[0]}</div>`).join('')}</div>`;
+      <div class="br-items">${(()=>{
+        const tempLine=[feel, cmp.replace(/^[📈📉↔️]+\s*/,'')].filter(Boolean).join(' · ');
+        const goLine=[go,back].filter(Boolean).join('  ·  ');
+        const refLine=[dust,uv].filter(Boolean).map(t=>t.replace(/^\S+\s/,'')).join(' · ');
+        return [[briefSummary(d,dayOff),' br-summary'],[rain,''],[tempLine,''],[goLine,''],[refLine? '🌫️ '+refLine : '',' br-sub']]
+          .filter(x=>x[0]).map(x=>`<div class="br-item${x[1]}">${x[0]}</div>`).join('');
+      })()}</div>`;
   }catch(e){ box.style.display='none'; console.error('briefing', e); }
   loadTable(r); // 기준 지점에서 가까운 순으로 표 정렬
 }
