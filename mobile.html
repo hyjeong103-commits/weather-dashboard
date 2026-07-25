@@ -538,11 +538,14 @@ async function renderBriefing(idx){
     const dayWord = dayOff ? '내일' : '오늘';
     const baseDay = addDays(kstNow(), dayOff);
     const tKey = ymd(baseDay), prevKey = ymd(addDays(baseDay,-1)), yKey = ymd(addDays(kstNow(),-1));
-    const [vilL, vilD, vilY, aq] = await Promise.all([
+    const [vilL, vilD, vilY, aq, mdl] = await Promise.all([
       getVilage(r.nx,r.ny,vbL).catch(()=>[]), getVilage(r.nx,r.ny,vbD).catch(()=>[]),
       getVilage(r.nx,r.ny,{date:yKey, time:'0200'}).catch(()=>null),
       (async()=>{ try{ const ll=gridToLatLon(r.nx,r.ny);
         return await fetch(`https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${ll.lat.toFixed(3)}&longitude=${ll.lon.toFixed(3)}&hourly=pm10,pm2_5,uv_index&timezone=Asia%2FSeoul&forecast_days=2`).then(x=>x.json());
+      }catch(e){ return null; } })(),
+      (async()=>{ try{ const ll=gridToLatLon(r.nx,r.ny);
+        return await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${ll.lat.toFixed(3)}&longitude=${ll.lon.toFixed(3)}&hourly=precipitation&models=ecmwf_ifs025,ukmo_global_deterministic_10km,jma_gsm,gfs_seamless&timezone=Asia%2FSeoul&forecast_days=2`).then(x=>x.json());
       }catch(e){ return null; } })()
     ]);
     const merged = summarizeVilage(mergeVilage(vilD, vilL));
@@ -582,6 +585,23 @@ async function renderBriefing(idx){
                     : `🔆 자외선 ${uvGrade(un)} (지금 ${un.toFixed(1)} · 최고 ${uvMax.toFixed(1)})`;
       }
     }
+    // 모델 신뢰도 힌트 — 기상청 강수량과 해외 4개 모델(ECMWF/UKMO/JMA/GFS) 비교
+    let trust='';
+    try{
+      if (mdl && mdl.hourly && d.pcp>0){
+        const H=mdl.hourly, base=dayOff*24;
+        const keys=Object.keys(H).filter(k=>k!=='time');
+        const sums=keys.map(k=>{ let s=0; for(let h=0;h<24;h++) s+=(H[k][base+h]||0); return s; }).filter(v=>!isNaN(v));
+        if (sums.length>=3){
+          const med=sums.slice().sort((a,b)=>a-b)[Math.floor(sums.length/2)];
+          const kma=d.pcp;
+          if (kma>=5 && med < kma*0.35)
+            trust = `🔎 다른 모델들은 ${med<1?'거의 없음':'약 '+(Math.round(med*10)/10)+'mm'}으로 봐요 — 예보 편차 큼`;
+          else if (med > Math.max(kma*2.5, kma+8))
+            trust = `🔎 다른 모델들은 더 많은 비(약 ${Math.round(med)}mm)를 봐요`;
+        }
+      }
+    }catch(e){}
     const he = h => { const p=d.hp[h]||0, s=d.hs[h]||1; return p===3?EMOJI.snow : p===4?EMOJI.shower : p>0?EMOJI.rain : s>=3?EMOJI.cloud:EMOJI.sun; };
     const go = d.ht[8]!=null ? `🚌 출근 8시 ${d.ht[8]}° ${he(8)}${d.hv[8]>0?' '+d.hv[8]+'mm':''}` : '';
     const back = d.ht[18]!=null ? `🏠 퇴근 18시 ${d.ht[18]}° ${he(18)}${d.hv[18]>0?' '+d.hv[18]+'mm':''}` : '';
@@ -597,7 +617,7 @@ async function renderBriefing(idx){
     document.getElementById('briefLeft').innerHTML = `<div class="br-head">${dayWord} 브리핑
         <select id="brSel" onchange="renderBriefing(+this.value)"><option value="-1" ${idx===-1?'selected':''}>📍 내 위치</option>${REGIONS.map((g,i)=>`<option value="${i}" ${i===idx?'selected':''}>${g.name}</option>`).join('')}</select>
         </div>
-      <div class="br-items">${[[briefSummary(d,dayOff),' br-summary'],[rain,''],[feel,''],[cmp,''],[dust,' br-sub'],[uv,' br-sub'],[go,''],[back,'']].filter(x=>x[0]).map(x=>`<div class="br-item${x[1]}">${x[0]}</div>`).join('')}</div>`;
+      <div class="br-items">${[[briefSummary(d,dayOff),' br-summary'],[rain,''],[trust,' br-sub'],[feel,''],[cmp,''],[dust,' br-sub'],[uv,' br-sub'],[go,''],[back,'']].filter(x=>x[0]).map(x=>`<div class="br-item${x[1]}">${x[0]}</div>`).join('')}</div>`;
   }catch(e){ box.style.display='none'; console.error('briefing', e); }
   loadTable(r); // 기준 지점에서 가까운 순으로 카드 정렬
 }
