@@ -49,6 +49,9 @@
   .br-loc{display:block;font-weight:400;font-size:11.5px;color:#666;margin-top:3px;}
   .br-item b{font-weight:700;}
   .br-sub{font-size:11.5px;opacity:.82;}
+  .br-item{display:flex;align-items:flex-start;gap:7px;}
+  .br-item .bi{flex:none;width:17px;text-align:center;line-height:1.45;}
+  .br-item .bt{flex:1;min-width:0;line-height:1.45;}
   .br-summary{font-size:13px;font-weight:700;color:var(--blue);line-height:1.4;padding-bottom:2px;}
   .est{font-size:11.5px;color:#777;font-weight:600;}
   body.dark .est{color:#9aa2ac;}
@@ -661,7 +664,11 @@ async function renderBriefing(idx){
         const goLine=[go,back].filter(Boolean).join('  ·  ');
         const refLine=[dust,uv].filter(Boolean).map(t=>t.replace(/^\S+\s/,'')).join(' · ');
         return [[briefSummary(d,dayOff),' br-summary'],[rain,''],[tempLine,''],[goLine,''],[refLine? '🌫️ '+refLine : '',' br-sub']]
-          .filter(x=>x[0]).map(x=>`<div class="br-item${x[1]}">${x[0]}</div>`).join('');
+          .filter(x=>x[0]).map(x=>{
+          const m=String(x[0]).match(/^(\S+?)\s+([\s\S]*)$/);
+          const ic=m?m[1]:'', tx=m?m[2]:x[0];
+          return `<div class="br-item${x[1]}"><span class="bi">${ic}</span><span class="bt">${tx}</span></div>`;
+        }).join('');
       })()}</div>`;
   }catch(e){ box.style.display='none'; console.error('briefing', e); }
   loadTable(r); // 기준 지점에서 가까운 순으로 카드 정렬
