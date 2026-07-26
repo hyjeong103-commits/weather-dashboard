@@ -13,9 +13,31 @@ const ALLOWED = {
 const SAFE = ['pageNo','numOfRows','base_date','base_time','nx','ny','regId','tmFc',
               'fromTmFc','toTmFc','stnId'];
 
+// 앱인토스 미니앱에서의 호출을 허용할 출처
+//  - <appName>.apps.tossmini.com          : 실서비스
+//  - <appName>.private-apps.tossmini.com  : 콘솔 QR 테스트
+function corsHeaders(request) {
+  const origin = request.headers.get('Origin') || '';
+  const ok = /^https:\/\/[a-z0-9-]+\.(private-apps|apps)\.tossmini\.com$/i.test(origin);
+  return ok
+    ? {
+        'access-control-allow-origin': origin,
+        'access-control-allow-methods': 'GET, OPTIONS',
+        'access-control-allow-headers': 'content-type',
+        'access-control-max-age': '86400',
+        'vary': 'Origin',
+      }
+    : {};
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
+
+    // CORS 프리플라이트
+    if (request.method === 'OPTIONS' && url.pathname.startsWith('/api/')) {
+      return new Response(null, { status: 204, headers: corsHeaders(request) });
+    }
 
     if (url.pathname === '/api/weather') {
       const KEY = env.KMA_KEY;
@@ -34,7 +56,7 @@ export default {
         const r = await fetch(`https://apis.data.go.kr/1360000/${path}?${qs}`);
         return new Response(await r.text(), {
           status: 200,
-          headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'public, max-age=600' },
+          headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'public, max-age=600', ...corsHeaders(request) },
         });
       } catch (e) {
         return json({ error: String(e) }, 502);
@@ -55,7 +77,7 @@ export default {
       }
       return new Response(JSON.stringify({ count: cur, day }), {
         status: 200,
-        headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' },
+        headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', ...corsHeaders(request) },
       });
     }
 
